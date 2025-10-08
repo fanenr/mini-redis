@@ -26,6 +26,42 @@ struct value_wrapper
   value_wrapper (const value_type &v) : value{ v } {}
   value_wrapper (value_type &&v) : value{ std::move (v) } {}
 
+  value_type &
+  operator* () noexcept
+  {
+    return value;
+  }
+
+  const value_type &
+  operator* () const noexcept
+  {
+    return value;
+  }
+
+  value_type *
+  operator->() noexcept
+  {
+    return &value;
+  }
+
+  const value_type &
+  operator->() const noexcept
+  {
+    return &value;
+  }
+
+  value_type &
+  operator() () noexcept
+  {
+    return value;
+  }
+
+  const value_type &
+  operator() () const noexcept
+  {
+    return value;
+  }
+
   friend bool
   operator== (const value_wrapper &lhs, const value_wrapper &rhs)
   {
@@ -73,7 +109,7 @@ public:
   using base_type::base_type;
 
   std::size_t
-  index () const
+  index () const noexcept
   {
     return value.index ();
   }
@@ -88,7 +124,7 @@ public:
 
   template <std::size_t Index>
   bool
-  is () const
+  is () const noexcept
   {
     return index () == Index;
   }
@@ -109,7 +145,8 @@ public:
 
   template <std::size_t Index>
   auto
-  get_if () -> decltype (boost::variant2::get_if<Index> (&value)->value) *
+  get_if () noexcept
+      -> decltype (boost::variant2::get_if<Index> (&value)->value) *
   {
     auto p = boost::variant2::get_if<Index> (&value);
     return p ? &p->value : nullptr;
@@ -117,7 +154,7 @@ public:
 
   template <std::size_t Index>
   auto
-  get_if () const
+  get_if () const noexcept
       -> decltype (boost::variant2::get_if<Index> (&value)->value) const *
   {
     auto p = boost::variant2::get_if<Index> (&value);

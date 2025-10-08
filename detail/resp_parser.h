@@ -213,15 +213,15 @@ private:
 	return;
       }
 
-    BOOST_ASSERT (frames_.back ().array.value);
-    frames_.back ().array.value->push_back (std::move (resp));
+    BOOST_ASSERT (frames_.back ().array->has_value ());
+    frames_.back ().array ()->push_back (std::move (resp));
 
     while (!frames_.empty ())
       {
 	frame &frm = frames_.back ();
-	BOOST_ASSERT (frm.array.value);
+	BOOST_ASSERT (frm.array->has_value ());
 
-	if (frm.array.value->size () < frm.expected)
+	if (frm.array ()->size () < frm.expected)
 	  break;
 
 	data resp{ array{ std::move (frm.array) } };
@@ -234,8 +234,8 @@ private:
 	  }
 	else
 	  {
-	    BOOST_ASSERT (frames_.back ().array.value);
-	    frames_.back ().array.value->push_back (std::move (resp));
+	    BOOST_ASSERT (frames_.back ().array->has_value ());
+	    frames_.back ().array ()->push_back (std::move (resp));
 	  }
       }
   }
