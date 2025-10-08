@@ -224,7 +224,7 @@ private:
 	if (frm.array.value->size () < frm.expected)
 	  break;
 
-	data resp{ array (std::move (frm.array)) };
+	data resp{ array{ std::move (frm.array) } };
 	frames_.pop_back ();
 
 	if (frames_.empty ())

@@ -75,4 +75,4 @@ private:
 } // namespace detail
 } // namespace mini_redis
 
-#endif // SERVER_IMPL_H
+#endif // DETAIL_SERVER_H
