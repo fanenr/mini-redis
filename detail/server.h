@@ -13,9 +13,11 @@ namespace detail
 class server
 {
 public:
-  server (int port, const config &cfg)
-      : acceptor_ (ioc_, tcp::endpoint (tcp::v4 (), port)),
-	signals_ (ioc_, SIGINT, SIGTERM), executor_ (ioc_.get_executor (), cfg)
+  server (int port, config cfg)
+      : config_ (std::move (cfg)),
+	acceptor_ (ioc_, tcp::endpoint (tcp::v4 (), port)),
+	signals_ (ioc_, SIGINT, SIGTERM),
+	executor_ (ioc_.get_executor (), config_)
   {
     wait_signals ();
   }
@@ -66,9 +68,12 @@ private:
   }
 
 private:
+  config config_;
+
   asio::io_context ioc_;
   tcp::acceptor acceptor_;
   asio::signal_set signals_;
+
   executor executor_;
 }; // class server
 

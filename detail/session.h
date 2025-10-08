@@ -95,9 +95,10 @@ private:
 
 private:
   tcp::socket socket_;
-  resp::parser parser_;
   std::array<char, 4096> buffer_;
   std::vector<std::string> results_;
+
+  resp::parser parser_;
   executor &executor_;
 }; // class session
 

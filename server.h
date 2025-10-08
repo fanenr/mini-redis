@@ -10,8 +10,8 @@ namespace mini_redis
 class server
 {
 public:
-  explicit server (int port = 6379, const config &cfg = {})
-      : impl_ (new detail::server (port, cfg))
+  explicit server (int port = 6379, config cfg = {})
+      : impl_ (new detail::server (port, std::move (cfg)))
   {
   }
 
