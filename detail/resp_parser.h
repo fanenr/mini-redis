@@ -112,7 +112,8 @@ private:
     if (pos == std::string::npos)
       return 0;
 
-    out = data{ simple_string{ std::string{ buffer_.data () + 1, pos - 1 } } };
+    auto str = std::string{ buffer_.data () + 1, pos - 1 };
+    out = data{ simple_string{ std::move (str) } };
     return pos + 2;
   }
 
@@ -123,7 +124,8 @@ private:
     if (pos == std::string::npos)
       return 0;
 
-    out = data{ simple_error{ std::string{ buffer_.data () + 1, pos - 1 } } };
+    auto str = std::string{ buffer_.data () + 1, pos - 1 };
+    out = data{ simple_error{ std::move (str) } };
     return pos + 2;
   }
 
@@ -155,8 +157,9 @@ private:
       BOOST_THROW_EXCEPTION (
 	  std::runtime_error ("bad bulk string: missing CRLF after data"));
 
-    out = data{ bulk_string{ std::string{ buffer_.data () + pos1 + 2,
-					  static_cast<std::size_t> (len) } } };
+    auto str = std::string{ buffer_.data () + pos1 + 2,
+			    static_cast<std::size_t> (len) };
+    out = data{ bulk_string{ std::move (str) } };
     return pos2 + 2;
   }
 

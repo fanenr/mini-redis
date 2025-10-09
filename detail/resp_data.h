@@ -2,6 +2,8 @@
 #define DETAIL_RESP_VALUE_H
 
 #include "predef.h"
+#include "value_wrapper.h"
+#include "variant_wrapper.h"
 
 #include <cstdint>
 #include <sstream>
@@ -14,66 +16,6 @@ namespace detail
 {
 namespace resp
 {
-
-struct data;
-
-template <class T, int Tag = 0>
-struct value_wrapper
-{
-  typedef T value_type;
-  value_type value;
-
-  value_wrapper (const value_type &v) : value{ v } {}
-  value_wrapper (value_type &&v) : value{ std::move (v) } {}
-
-  value_type &
-  operator* () noexcept
-  {
-    return value;
-  }
-
-  const value_type &
-  operator* () const noexcept
-  {
-    return value;
-  }
-
-  value_type *
-  operator->() noexcept
-  {
-    return &value;
-  }
-
-  const value_type *
-  operator->() const noexcept
-  {
-    return &value;
-  }
-
-  value_type &
-  operator() () noexcept
-  {
-    return value;
-  }
-
-  const value_type &
-  operator() () const noexcept
-  {
-    return value;
-  }
-
-  friend bool
-  operator== (const value_wrapper &lhs, const value_wrapper &rhs)
-  {
-    return lhs.value == rhs.value;
-  }
-
-  friend bool
-  operator!= (const value_wrapper &lhs, const value_wrapper &rhs)
-  {
-    return !(lhs == rhs);
-  }
-};
 
 enum : std::size_t
 {
@@ -93,6 +35,8 @@ enum : char
   array_first = '*',
 };
 
+struct data;
+
 typedef value_wrapper<std::string, simple_string_index> simple_string;
 typedef value_wrapper<std::string, simple_error_index> simple_error;
 typedef value_wrapper<optional<std::string>, bulk_string_index> bulk_string;
@@ -100,107 +44,21 @@ typedef value_wrapper<std::int64_t, integer_index> integer;
 typedef value_wrapper<optional<std::vector<data>>, array_index> array;
 
 struct data
-    : value_wrapper<
-	  variant<simple_string, simple_error, bulk_string, integer, array>>
+    : variant_wrapper<simple_string, simple_error, bulk_string, integer, array>
 {
-  typedef value_wrapper base_type;
-
-public:
+  typedef variant_wrapper base_type;
   using base_type::base_type;
-
-  std::size_t
-  index () const noexcept
-  {
-    return value.index ();
-  }
 
   std::string
   encode () const
   {
     std::ostringstream oss;
-    encode_impl (oss, *this);
+    encode (oss, *this);
     return oss.str ();
   }
 
-  template <std::size_t I>
-  bool
-  is () const noexcept
-  {
-    return index () == I;
-  }
-
-  template <class U>
-  bool
-  is () const noexcept
-  {
-    return boost::variant2::holds_alternative<U> (value);
-  }
-
-  template <std::size_t I>
-  auto
-  get () -> decltype (boost::variant2::get<I> (value).value) &
-  {
-    return boost::variant2::get<I> (value).value;
-  }
-
-  template <std::size_t I>
-  auto
-  get () const -> decltype (boost::variant2::get<I> (value).value) const &
-  {
-    return boost::variant2::get<I> (value).value;
-  }
-
-  template <class U>
-  auto
-  get () -> decltype (boost::variant2::get<U> (value).value) &
-  {
-    return boost::variant2::get<U> (value).value;
-  }
-
-  template <class U>
-  auto
-  get () const -> decltype (boost::variant2::get<U> (value).value) const &
-  {
-    return boost::variant2::get<U> (value).value;
-  }
-
-  template <std::size_t I>
-  auto
-  get_if () noexcept -> decltype (boost::variant2::get_if<I> (&value)->value) *
-  {
-    auto p = boost::variant2::get_if<I> (&value);
-    return p ? &p->value : nullptr;
-  }
-
-  template <std::size_t I>
-  auto
-  get_if () const noexcept
-      -> decltype (boost::variant2::get_if<I> (&value)->value) const *
-  {
-    auto p = boost::variant2::get_if<I> (&value);
-    return p ? &p->value : nullptr;
-  }
-
-  template <class U>
-  auto
-  get_if () noexcept -> decltype (boost::variant2::get_if<U> (&value)->value) *
-  {
-    auto p = boost::variant2::get_if<U> (&value);
-    return p ? &p->value : nullptr;
-  }
-
-  template <class U>
-  auto
-  get_if () const noexcept
-      -> decltype (boost::variant2::get_if<U> (&value)->value) const *
-  {
-    auto p = boost::variant2::get_if<U> (&value);
-    return p ? &p->value : nullptr;
-  }
-
-private:
-  void
-  encode_impl (std::ostringstream &oss, const data &resp) const
+  static void
+  encode (std::ostringstream &oss, const data &resp)
   {
     switch (resp.index ())
       {
@@ -242,18 +100,45 @@ private:
 	  oss << array_first;
 	  if (arr)
 	    {
-	      auto size = arr->size ();
-	      oss << size << "\r\n";
-	      for (std::size_t i = 0; i < size; i++)
-		encode_impl (oss, arr.value ()[i]);
+	      const auto &vec = arr.value ();
+	      oss << vec.size () << "\r\n";
+	      for (const auto &i : vec)
+		encode (oss, i);
 	    }
 	  else
 	    oss << -1 << "\r\n";
 	}
 	break;
+
+      default:
+	BOOST_THROW_EXCEPTION (std::logic_error ("bad data"));
       }
   }
 }; // class data
+
+inline resp::data
+null_array ()
+{
+  return resp::data{ resp::array{ boost::none } };
+}
+
+inline resp::data
+null_string ()
+{
+  return resp::data{ resp::bulk_string{ boost::none } };
+}
+
+inline resp::data
+error (string_view msg)
+{
+  return resp::data{ resp::simple_error{ msg.to_string () } };
+}
+
+inline resp::data
+success (string_view msg)
+{
+  return resp::data{ resp::simple_string{ msg.to_string () } };
+}
 
 } // namespace resp
 } // namespace detail
