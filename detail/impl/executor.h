@@ -19,33 +19,27 @@ public:
   resp::data
   execute (resp::data resp)
   {
-    auto *p_arr = resp.get_if<resp::array_index> ();
+    auto *p_arr = resp.get_if<resp::array> ();
     if (!p_arr || !p_arr->has_value ())
       return error ("bad command: invalid array");
 
     auto &arr = p_arr->value ();
     auto validator{ [] (const resp::data &resp) {
-      auto p = resp.get_if<resp::bulk_string_index> ();
+      auto p = resp.get_if<resp::bulk_string> ();
       return p && p->has_value ();
     } };
     if (arr.empty () || !std::all_of (arr.begin (), arr.end (), validator))
       return error ("bad command: invalid command");
 
-    std::string &cmd = arr.front ().get<resp::bulk_string_index> ().value ();
+    std::string &cmd = arr.front ().get<resp::bulk_string> ().value ();
     std::vector<string_view> args (arr.size () - 1);
 
     auto transformer{ [] (const resp::data &resp) {
-      return string_view{ resp.get<resp::bulk_string_index> ().value () };
+      return string_view{ resp.get<resp::bulk_string> ().value () };
     } };
     std::transform (arr.begin () + 1, arr.end (), args.begin (), transformer);
 
     return exec (cmd, args);
-  }
-
-  const config &
-  get_config () const
-  {
-    return config_;
   }
 
 private:
@@ -120,6 +114,20 @@ executor::executor (asio::any_io_executor ex, config &cfg)
 }
 
 executor::~executor () { delete impl_; }
+
+template <class Task>
+void
+executor::post (Task task)
+{
+  asio::post (strand_, std::move (task));
+}
+
+template <class Task>
+void
+executor::dispatch (Task task)
+{
+  asio::dispatch (strand_, std::move (task));
+}
 
 template <class Callback>
 void

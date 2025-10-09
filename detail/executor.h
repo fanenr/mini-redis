@@ -18,18 +18,10 @@ public:
   ~executor ();
 
   template <class Task>
-  void
-  post (Task task)
-  {
-    asio::post (strand_, std::move (task));
-  }
+  void post (Task task);
 
   template <class Task>
-  void
-  dispatch (Task task)
-  {
-    asio::dispatch (strand_, std::move (task));
-  }
+  void dispatch (Task task);
 
   template <class Callback>
   void post (resp::data cmd, Callback cb);

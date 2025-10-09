@@ -44,7 +44,7 @@ struct value_wrapper
     return &value;
   }
 
-  const value_type &
+  const value_type *
   operator->() const noexcept
   {
     return &value;
@@ -122,42 +122,79 @@ public:
     return oss.str ();
   }
 
-  template <std::size_t Index>
+  template <std::size_t I>
   bool
   is () const noexcept
   {
-    return index () == Index;
+    return index () == I;
   }
 
-  template <std::size_t Index>
-  auto
-  get () -> decltype (boost::variant2::get<Index> (value).value) &
+  template <class U>
+  bool
+  is () const noexcept
   {
-    return boost::variant2::get<Index> (value).value;
+    return boost::variant2::holds_alternative<U> (value);
   }
 
-  template <std::size_t Index>
+  template <std::size_t I>
   auto
-  get () const -> decltype (boost::variant2::get<Index> (value).value) const &
+  get () -> decltype (boost::variant2::get<I> (value).value) &
   {
-    return boost::variant2::get<Index> (value).value;
+    return boost::variant2::get<I> (value).value;
   }
 
-  template <std::size_t Index>
+  template <std::size_t I>
   auto
-  get_if () noexcept
-      -> decltype (boost::variant2::get_if<Index> (&value)->value) *
+  get () const -> decltype (boost::variant2::get<I> (value).value) const &
   {
-    auto p = boost::variant2::get_if<Index> (&value);
+    return boost::variant2::get<I> (value).value;
+  }
+
+  template <class U>
+  auto
+  get () -> decltype (boost::variant2::get<U> (value).value) &
+  {
+    return boost::variant2::get<U> (value).value;
+  }
+
+  template <class U>
+  auto
+  get () const -> decltype (boost::variant2::get<U> (value).value) const &
+  {
+    return boost::variant2::get<U> (value).value;
+  }
+
+  template <std::size_t I>
+  auto
+  get_if () noexcept -> decltype (boost::variant2::get_if<I> (&value)->value) *
+  {
+    auto p = boost::variant2::get_if<I> (&value);
     return p ? &p->value : nullptr;
   }
 
-  template <std::size_t Index>
+  template <std::size_t I>
   auto
   get_if () const noexcept
-      -> decltype (boost::variant2::get_if<Index> (&value)->value) const *
+      -> decltype (boost::variant2::get_if<I> (&value)->value) const *
   {
-    auto p = boost::variant2::get_if<Index> (&value);
+    auto p = boost::variant2::get_if<I> (&value);
+    return p ? &p->value : nullptr;
+  }
+
+  template <class U>
+  auto
+  get_if () noexcept -> decltype (boost::variant2::get_if<U> (&value)->value) *
+  {
+    auto p = boost::variant2::get_if<U> (&value);
+    return p ? &p->value : nullptr;
+  }
+
+  template <class U>
+  auto
+  get_if () const noexcept
+      -> decltype (boost::variant2::get_if<U> (&value)->value) const *
+  {
+    auto p = boost::variant2::get_if<U> (&value);
     return p ? &p->value : nullptr;
   }
 
@@ -169,21 +206,21 @@ private:
       {
       case simple_string_index:
 	{
-	  const auto &ss = get<simple_error_index> ();
+	  const auto &ss = resp.get<simple_error> ();
 	  oss << simple_string_first << ss << "\r\n";
 	}
 	break;
 
       case simple_error_index:
 	{
-	  const auto &se = get<simple_error_index> ();
+	  const auto &se = resp.get<simple_error> ();
 	  oss << simple_error_first << se << "\r\n";
 	}
 	break;
 
       case bulk_string_index:
 	{
-	  const auto &bs = get<bulk_string_index> ();
+	  const auto &bs = resp.get<bulk_string> ();
 	  oss << bulk_string_first;
 	  if (bs)
 	    oss << bs->size () << "\r\n" << *bs << "\r\n";
@@ -194,14 +231,14 @@ private:
 
       case integer_index:
 	{
-	  const auto &num = get<integer_index> ();
+	  const auto &num = resp.get<integer> ();
 	  oss << integer_first << num << "\r\n";
 	}
 	break;
 
       case array_index:
 	{
-	  const auto &arr = get<array_index> ();
+	  const auto &arr = resp.get<array> ();
 	  oss << array_first;
 	  if (arr)
 	    {
