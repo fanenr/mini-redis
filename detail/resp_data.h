@@ -64,7 +64,7 @@ struct data
       {
       case simple_string_index:
 	{
-	  const auto &ss = resp.get<simple_error> ();
+	  const auto &ss = resp.get<simple_string> ();
 	  oss << simple_string_first << ss << "\r\n";
 	}
 	break;
@@ -116,28 +116,40 @@ struct data
   }
 }; // class data
 
-inline resp::data
+inline data
 null_array ()
 {
-  return resp::data{ resp::array{ boost::none } };
+  return data{ array{ boost::none } };
 }
 
-inline resp::data
+inline data
 null_string ()
 {
-  return resp::data{ resp::bulk_string{ boost::none } };
+  return data{ bulk_string{ boost::none } };
 }
 
-inline resp::data
+inline data
+empty_array ()
+{
+  return data{ array{ std::vector<data>{} } };
+}
+
+inline data
+empty_string ()
+{
+  return data{ bulk_string{ std::string{} } };
+}
+
+inline data
 error (string_view msg)
 {
-  return resp::data{ resp::simple_error{ msg.to_string () } };
+  return data{ simple_error{ msg.to_string () } };
 }
 
-inline resp::data
+inline data
 success (string_view msg)
 {
-  return resp::data{ resp::simple_string{ msg.to_string () } };
+  return data{ simple_string{ msg.to_string () } };
 }
 
 } // namespace resp

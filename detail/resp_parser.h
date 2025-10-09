@@ -86,7 +86,9 @@ private:
 	consumed = parse_array (resp);
 	break;
       default:
-	BOOST_THROW_EXCEPTION (std::runtime_error ("invalid RESP prefix"));
+	// TODO: response error
+	// bad resp: unknown prefix
+	consumed = 1;
       }
 
     if (!consumed)
@@ -136,26 +138,44 @@ private:
     if (pos1 == std::string::npos)
       return 0;
     if (pos1 == 1)
-      BOOST_THROW_EXCEPTION (
-	  std::runtime_error ("bad bulk string: missing CRLF after length"));
+      {
+	// TODO: response error
+	// bad bulk string: missing digits
+	return pos1 + 2;
+      }
 
-    auto len
-	= boost::lexical_cast<std::int64_t> (buffer_.data () + 1, pos1 - 1);
+    std::int64_t len;
+    using boost::conversion::try_lexical_convert;
+    if (!try_lexical_convert (buffer_.data () + 1, pos1 - 1, len))
+      {
+	// TODO: response error
+	// bad bulk string: invalid length
+	return pos1 + 2;
+      }
+
     if (len == -1)
       {
-	out = data{ bulk_string{ boost::none } };
+	out = null_string ();
 	return pos1 + 2;
       }
     if (len < 0)
-      BOOST_THROW_EXCEPTION (
-	  std::runtime_error ("bad bulk string: invalid length"));
+      {
+	// TODO: response error
+	// bad bulk string: invalid length
+	return pos1 + 2;
+      }
+
+    // TODO: limit bulk string length
 
     auto pos2 = pos1 + 2 + len;
     if (buffer_.size () < pos2 + 2)
       return 0;
     if (buffer_[pos2] != '\r' || buffer_[pos2 + 1] != '\n')
-      BOOST_THROW_EXCEPTION (
-	  std::runtime_error ("bad bulk string: missing CRLF after data"));
+      {
+	// TODO: response error
+	// bad bulk string: missing CRLF after data
+	return pos2;
+      }
 
     auto str = std::string{ buffer_.data () + pos1 + 2,
 			    static_cast<std::size_t> (len) };
@@ -170,10 +190,21 @@ private:
     if (pos == std::string::npos)
       return 0;
     if (pos == 1)
-      BOOST_THROW_EXCEPTION (std::runtime_error ("bad integer: missing CRLF"));
+      {
+	// TODO: response error
+	// bad integer: missing digits
+	return pos + 2;
+      }
 
-    auto num
-	= boost::lexical_cast<std::int64_t> (buffer_.data () + 1, pos - 1);
+    std::int64_t num;
+    using boost::conversion::try_lexical_convert;
+    if (!try_lexical_convert (buffer_.data () + 1, pos - 1, num))
+      {
+	// TODO: response error
+	// bad integer: invalid number
+	return pos + 2;
+      }
+
     out = data{ integer{ num } };
     return pos + 2;
   }
@@ -185,24 +216,38 @@ private:
     if (pos == std::string::npos)
       return 0;
     if (pos == 1)
-      BOOST_THROW_EXCEPTION (std::runtime_error ("bad array: missing CRLF"));
+      {
+	// TODO: response error
+	// bad array: missing digits
+	return pos + 2;
+      }
 
-    auto len
-	= boost::lexical_cast<std::int64_t> (buffer_.data () + 1, pos - 1);
+    std::int64_t len;
+    using boost::conversion::try_lexical_convert;
+    if (!try_lexical_convert (buffer_.data () + 1, pos - 1, len))
+      {
+	// TODO: response error
+	// bad array: invalid length
+	return pos + 2;
+      }
     if (len == 0)
       {
-	out = data{ array{ array::value_type{} } };
+	out = empty_array ();
 	return pos + 2;
       }
     if (len == -1)
       {
-	out = data{ array{ boost::none } };
+	out = null_array ();
 	return pos + 2;
       }
     if (len < 0)
-      BOOST_THROW_EXCEPTION (std::runtime_error ("bad array: invalid length"));
+      {
+	// TODO: response error
+	// bad array: invalid length
+	return pos + 2;
+      }
 
-    frame frm{ static_cast<std::size_t> (len), array{ array::value_type{} } };
+    frame frm{ static_cast<std::size_t> (len), array{ std::vector<data>{} } };
     frames_.push_back (std::move (frm));
     return pos + 2;
   }
@@ -247,7 +292,7 @@ private:
   struct frame
   {
     std::size_t expected;
-    array array;
+    resp::array array;
   };
 
   std::deque<data> results_;

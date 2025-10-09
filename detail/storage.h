@@ -69,12 +69,12 @@ struct data : variant_wrapper<raw, integer, list, set, hashtable>
 	{
 	  const auto &lst = get<list> ();
 
-	  std::vector<resp::data> arr;
-	  arr.reserve (lst.size ());
+	  std::vector<resp::data> vec;
+	  vec.reserve (lst.size ());
 	  for (const auto &i : lst)
-	    arr.push_back (resp::data{ resp::bulk_string{ i } });
+	    vec.push_back (resp::data{ resp::bulk_string{ i } });
 
-	  return resp::data{ resp::array{ std::move (arr) } };
+	  return resp::data{ resp::array{ std::move (vec) } };
 	}
 	break;
 
@@ -82,12 +82,12 @@ struct data : variant_wrapper<raw, integer, list, set, hashtable>
 	{
 	  const auto &st = get<set> ();
 
-	  std::vector<resp::data> arr;
-	  arr.reserve (st.size ());
+	  std::vector<resp::data> vec;
+	  vec.reserve (st.size ());
 	  for (const auto &i : st)
-	    arr.push_back (resp::data{ resp::bulk_string{ i } });
+	    vec.push_back (resp::data{ resp::bulk_string{ i } });
 
-	  return resp::data{ resp::array{ std::move (arr) } };
+	  return resp::data{ resp::array{ std::move (vec) } };
 	}
 	break;
 
@@ -95,15 +95,15 @@ struct data : variant_wrapper<raw, integer, list, set, hashtable>
 	{
 	  const auto &ht = get<hashtable> ();
 
-	  std::vector<resp::data> arr;
-	  arr.reserve (ht.size () * 2);
+	  std::vector<resp::data> vec;
+	  vec.reserve (ht.size () * 2);
 	  for (const auto &p : ht)
 	    {
-	      arr.push_back (resp::data{ resp::bulk_string{ p.first } });
-	      arr.push_back (resp::data{ resp::bulk_string{ p.second } });
+	      vec.push_back (resp::data{ resp::bulk_string{ p.first } });
+	      vec.push_back (resp::data{ resp::bulk_string{ p.second } });
 	    }
 
-	  return resp::data{ resp::array{ std::move (arr) } };
+	  return resp::data{ resp::array{ std::move (vec) } };
 	}
 	break;
 

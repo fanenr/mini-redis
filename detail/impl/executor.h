@@ -13,53 +13,66 @@ namespace detail
 
 class executor::impl
 {
+private:
+  typedef resp::data (impl::*exec_type) ();
+
 public:
   explicit impl (config &cfg) : config_ (cfg) {}
 
   resp::data
   execute (resp::data resp)
   {
-    auto *p_arr = resp.get_if<resp::array> ();
-    if (!p_arr || !p_arr->has_value ())
-      return resp::error ("bad command: invalid array");
+    if (!resp.is<resp::array> ())
+      return resp::error ("bad command: not an array");
 
-    auto &arr = p_arr->value ();
+    auto &arr = resp.get<resp::array> ();
+    if (!arr.has_value ())
+      return resp::error ("bad command: null array");
+
+    auto &vec = arr.value ();
+    if (vec.empty ())
+      return resp::error ("bad command: empty array");
+
     auto validator{ [] (const resp::data &resp) {
       auto p = resp.get_if<resp::bulk_string> ();
       return p && p->has_value ();
     } };
-    if (arr.empty () || !std::all_of (arr.begin (), arr.end (), validator))
-      return resp::error ("bad command: invalid command");
+    if (!std::all_of (vec.begin (), vec.end (), validator))
+      return resp::error ("bad command: invalid arguments");
 
-    std::string &cmd = arr.front ().get<resp::bulk_string> ().value ();
-    std::vector<string_view> args;
-    args.reserve (arr.size () - 1);
-    for (auto it = arr.begin () + 1; it != arr.end (); it++)
-      args.push_back (it->get<resp::bulk_string> ().value ());
+    auto &cmd = vec.front ().get<resp::bulk_string> ().value ();
 
-    return exec (cmd, args);
+    args_.clear ();
+    args_.reserve (vec.size () - 1);
+    for (auto it = vec.begin () + 1; it != vec.end (); it++)
+      args_.push_back (it->get<resp::bulk_string> ().value ());
+
+    return exec (cmd);
   }
 
 private:
   resp::data
-  exec (string_view cmd, span<string_view> args)
+  exec (string_view cmd)
   {
-    if (cmd == "SET")
-      return exec_set (args);
-    else if (cmd == "GET")
-      return exec_get (args);
+    auto it = cmds_.find (cmd);
+    if (it != cmds_.end ())
+      {
+	auto fn = it->second;
+	return (this->*fn) ();
+      }
     return resp::error ("bad command: unknown command");
   }
 
   resp::data
-  exec_set (span<string_view> args)
+  exec_set ()
   {
-    if (args.size () != 2)
+    if (args_.size () != 2)
       return resp::error ("bad command: argument count mismatch");
 
-    auto key = args[0].to_string ();
-    auto value = storage::data{ storage::raw{ args[1].to_string () } };
-    auto pair = db_.insert_or_assign (std::move (key), std::move (value));
+    auto &s0 = args_[0].get ();
+    auto &s1 = args_[1].get ();
+    storage::data data{ storage::raw{ std::move (s1) } };
+    auto pair = db_.insert_or_assign (std::move (s0), std::move (data));
 
     if (pair.second)
       return resp::success ("OK");
@@ -68,13 +81,13 @@ private:
   }
 
   resp::data
-  exec_get (span<string_view> args)
+  exec_get ()
   {
-    if (args.size () != 1)
+    if (args_.size () != 1)
       return resp::error ("bad command: argument count mismatch");
 
-    auto key = args[0].to_string ();
-    auto it = db_.find (key);
+    auto &s0 = args_[0].get ();
+    auto it = db_.find (s0);
 
     if (it != db_.end ())
       return it->second.to_resp ();
@@ -85,6 +98,12 @@ private:
 private:
   config &config_;
   storage::unordered_map<std::string, storage::data> db_;
+
+  std::vector<std::reference_wrapper<std::string>> args_;
+  const storage::unordered_map<string_view, exec_type> cmds_{
+    { "SET", &impl::exec_set },
+    { "GET", &impl::exec_get },
+  };
 }; // class executor
 
 } // namespace detail
