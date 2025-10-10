@@ -1,5 +1,4 @@
 #include "resp_parser.h"
-#include "resp_util.h"
 
 #include <boost/lexical_cast.hpp>
 
@@ -139,7 +138,7 @@ parser::parse_bulk_string (optional<data> &out)
     }
   if (len == -1)
     {
-      out = null_string ();
+      out = data{ bulk_string{ boost::none } };
       return pos1 + 2;
     }
   if (len < 0)
@@ -214,14 +213,14 @@ parser::parse_array (optional<data> &out)
       // bad array: invalid length
       return pos + 2;
     }
-  if (len == -1)
-    {
-      out = null_array ();
-      return pos + 2;
-    }
   if (len == 0)
     {
-      out = empty_array ();
+      out = data{ array{ std::vector<data>{} } };
+      return pos + 2;
+    }
+  if (len == -1)
+    {
+      out = data{ array{ boost::none } };
       return pos + 2;
     }
   if (len < 0)

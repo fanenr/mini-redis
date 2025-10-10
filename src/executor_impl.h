@@ -20,6 +20,7 @@ private:
   resp::data exec (string_view cmd);
   resp::data exec_set ();
   resp::data exec_get ();
+  resp::data exec_del ();
   resp::data exec_ping ();
 
 private:
