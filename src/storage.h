@@ -23,25 +23,17 @@ using unordered_set = boost::unordered_flat_set<Value>;
 template <class Key, class Value>
 using unordered_map = boost::unordered_flat_map<Key, Value>;
 
-enum : std::size_t
-{
-  raw_index = 0,
-  integer_index = 1,
-  list_index = 2,
-  set_index = 3,
-  hashtable_index = 4,
-};
+typedef value_wrapper<std::string, 0> raw;
+typedef value_wrapper<std::int64_t, 1> integer;
+typedef value_wrapper<std::deque<std::string>, 2> list;
+typedef value_wrapper<unordered_set<std::string>, 3> set;
+typedef value_wrapper<unordered_map<std::string, std::string>, 4> hashtable;
 
-typedef value_wrapper<std::string, raw_index> raw;
-typedef value_wrapper<std::int64_t, integer_index> integer;
-typedef value_wrapper<std::deque<std::string>, list_index> list;
-typedef value_wrapper<unordered_set<std::string>, set_index> set;
-typedef value_wrapper<unordered_map<std::string, std::string>, hashtable_index>
-    hashtable;
+typedef variant_wrapper<raw, integer, list, set, hashtable> data_base;
 
-struct data : variant_wrapper<raw, integer, list, set, hashtable>
+struct data : data_base
 {
-  typedef variant_wrapper base_type;
+  typedef data_base base_type;
   using base_type::base_type;
 
   resp::data to_resp () const;

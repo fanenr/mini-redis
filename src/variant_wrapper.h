@@ -4,6 +4,8 @@
 #include "predef.h"
 #include "value_wrapper.h"
 
+#include <boost/mp11.hpp>
+
 namespace mini_redis
 {
 
@@ -13,32 +15,11 @@ struct variant_wrapper : variant<Ts...>
   typedef variant<Ts...> variant_type;
   using variant_type::variant_type;
 
-  template <std::size_t I>
-  bool
-  is () const noexcept
-  {
-    return variant_type::index () == I;
-  }
-
   template <class U>
   bool
   is () const noexcept
   {
     return boost::variant2::holds_alternative<U> (*this);
-  }
-
-  template <std::size_t I>
-  auto
-  get () -> decltype (boost::variant2::get<I> (*this).value) &
-  {
-    return boost::variant2::get<I> (*this).value;
-  }
-
-  template <std::size_t I>
-  auto
-  get () const -> decltype (boost::variant2::get<I> (*this).value) const &
-  {
-    return boost::variant2::get<I> (*this).value;
   }
 
   template <class U>
@@ -53,23 +34,6 @@ struct variant_wrapper : variant<Ts...>
   get () const -> decltype (boost::variant2::get<U> (*this).value) const &
   {
     return boost::variant2::get<U> (*this).value;
-  }
-
-  template <std::size_t I>
-  auto
-  get_if () noexcept -> decltype (boost::variant2::get_if<I> (this)->value) *
-  {
-    auto p = boost::variant2::get_if<I> (this);
-    return p ? &p->value : nullptr;
-  }
-
-  template <std::size_t I>
-  auto
-  get_if () const noexcept
-      -> decltype (boost::variant2::get_if<I> (this)->value) const *
-  {
-    auto p = boost::variant2::get_if<I> (this);
-    return p ? &p->value : nullptr;
   }
 
   template <class U>
@@ -88,6 +52,18 @@ struct variant_wrapper : variant<Ts...>
     auto p = boost::variant2::get_if<U> (this);
     return p ? &p->value : nullptr;
   }
+
+  template <class U>
+  static constexpr std::size_t
+  index_of ()
+  {
+    using namespace boost::mp11;
+    typedef mp_list<Ts...> L;
+    static_assert (mp_find<L, U>::value < mp_size<L>::value,
+		   "U is not in the type list");
+    return mp_find<L, U>::value;
+  };
+
 }; // class variant_wrapper
 
 } // namespace mini_redis

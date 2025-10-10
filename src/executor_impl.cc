@@ -103,13 +103,13 @@ executor_impl::exec_set ()
   //   - nil: Operation was aborted (conflict with one of the XX/NX options).
   //          The key was not set.
   //   - simple string: OK: The key was set.
+  return simple_string ("OK");
 
   // if GET was specified:
   //   - nil: The key didn't exist before the SET. If XX was specified, the key
   //          was not set. Otherwise, the key was set.
   //   - bulk string: The previous value of the key. If NX was specified, the
   //                  key was not set. Otherwise, the key was set.
-  return simple_string ("OK");
 }
 
 resp::data

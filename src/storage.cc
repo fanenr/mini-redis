@@ -10,21 +10,21 @@ data::to_resp () const
 {
   switch (index ())
     {
-    case raw_index:
+    case data::index_of<raw> ():
       {
 	const auto &str = get<raw> ();
 	return resp::data{ resp::bulk_string{ str } };
       }
       break;
 
-    case integer_index:
+    case data::index_of<integer> ():
       {
 	const auto &num = get<integer> ();
 	return resp::data{ resp::integer{ num } };
       }
       break;
 
-    case list_index:
+    case data::index_of<list> ():
       {
 	const auto &lst = get<list> ();
 
@@ -37,7 +37,7 @@ data::to_resp () const
       }
       break;
 
-    case set_index:
+    case data::index_of<set> ():
       {
 	const auto &st = get<set> ();
 
@@ -50,7 +50,7 @@ data::to_resp () const
       }
       break;
 
-    case hashtable_index:
+    case data::index_of<hashtable> ():
       {
 	const auto &ht = get<hashtable> ();
 

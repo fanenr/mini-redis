@@ -18,21 +18,21 @@ data::encode (std::ostringstream &oss, const data &resp)
 {
   switch (resp.index ())
     {
-    case simple_string_index:
+    case data::index_of<simple_string> ():
       {
 	const auto &ss = resp.get<simple_string> ();
 	oss << simple_string_first << ss << "\r\n";
       }
       break;
 
-    case simple_error_index:
+    case data::index_of<simple_error> ():
       {
 	const auto &se = resp.get<simple_error> ();
 	oss << simple_error_first << se << "\r\n";
       }
       break;
 
-    case bulk_string_index:
+    case data::index_of<bulk_string> ():
       {
 	const auto &bs = resp.get<bulk_string> ();
 	oss << bulk_string_first;
@@ -43,14 +43,14 @@ data::encode (std::ostringstream &oss, const data &resp)
       }
       break;
 
-    case integer_index:
+    case data::index_of<integer> ():
       {
 	const auto &num = resp.get<integer> ();
 	oss << integer_first << num << "\r\n";
       }
       break;
 
-    case array_index:
+    case data::index_of<array> ():
       {
 	const auto &arr = resp.get<array> ();
 	oss << array_first;

@@ -15,15 +15,6 @@ namespace mini_redis
 namespace resp
 {
 
-enum : std::size_t
-{
-  simple_string_index = 0,
-  simple_error_index = 1,
-  bulk_string_index = 2,
-  integer_index = 3,
-  array_index = 4,
-};
-
 enum : char
 {
   simple_string_first = '+',
@@ -35,16 +26,19 @@ enum : char
 
 struct data;
 
-typedef value_wrapper<std::string, simple_string_index> simple_string;
-typedef value_wrapper<std::string, simple_error_index> simple_error;
-typedef value_wrapper<optional<std::string>, bulk_string_index> bulk_string;
-typedef value_wrapper<std::int64_t, integer_index> integer;
-typedef value_wrapper<optional<std::vector<data>>, array_index> array;
+typedef value_wrapper<std::int64_t, 0> integer;
+typedef value_wrapper<std::string, 1> simple_error;
+typedef value_wrapper<std::string, 2> simple_string;
+typedef value_wrapper<optional<std::string>, 3> bulk_string;
+typedef value_wrapper<optional<std::vector<data>>, 4> array;
 
-struct data
-    : variant_wrapper<simple_string, simple_error, bulk_string, integer, array>
+typedef variant_wrapper<integer, simple_error, simple_string, bulk_string,
+			array>
+    data_base;
+
+struct data : data_base
 {
-  typedef variant_wrapper base_type;
+  typedef data_base base_type;
   using base_type::base_type;
 
   std::string encode () const;

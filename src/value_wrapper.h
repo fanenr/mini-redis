@@ -6,7 +6,7 @@
 namespace mini_redis
 {
 
-template <class T, int Tag>
+template <class T, std::size_t Tag>
 struct value_wrapper
 {
   typedef T value_type;
@@ -69,7 +69,7 @@ struct is_value_wrapper : std::false_type
 {
 };
 
-template <class T, int Tag>
+template <class T, std::size_t Tag>
 struct is_value_wrapper<value_wrapper<T, Tag>> : std::true_type
 {
 };
