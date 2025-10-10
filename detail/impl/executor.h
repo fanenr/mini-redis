@@ -23,22 +23,22 @@ public:
   execute (resp::data resp)
   {
     if (!resp.is<resp::array> ())
-      return resp::error ("bad command: not an array");
+      return resp::data::error ("bad command: not an array");
 
     auto &arr = resp.get<resp::array> ();
     if (!arr.has_value ())
-      return resp::error ("bad command: null array");
+      return resp::data::error ("bad command: null array");
 
     auto &vec = arr.value ();
     if (vec.empty ())
-      return resp::error ("bad command: empty array");
+      return resp::data::error ("bad command: empty array");
 
     auto validator{ [] (const resp::data &resp) {
       auto p = resp.get_if<resp::bulk_string> ();
       return p && p->has_value ();
     } };
     if (!std::all_of (vec.begin (), vec.end (), validator))
-      return resp::error ("bad command: invalid arguments");
+      return resp::data::error ("bad command: invalid arguments");
 
     auto &cmd = vec.front ().get<resp::bulk_string> ().value ();
 
@@ -60,14 +60,14 @@ private:
 	auto fn = it->second;
 	return (this->*fn) ();
       }
-    return resp::error ("bad command: unknown command");
+    return resp::data::error ("bad command: unknown command");
   }
 
   resp::data
   exec_set ()
   {
     if (args_.size () != 2)
-      return resp::error ("bad command: argument count mismatch");
+      return resp::data::error ("bad command: argument count mismatch");
 
     auto &s0 = args_[0].get ();
     auto &s1 = args_[1].get ();
@@ -75,16 +75,16 @@ private:
     auto pair = db_.insert_or_assign (std::move (s0), std::move (data));
 
     if (pair.second)
-      return resp::success ("OK");
+      return resp::data::message ("OK");
     else
-      return resp::error ("FAILED");
+      return resp::data::error ("FAILED");
   }
 
   resp::data
   exec_get ()
   {
     if (args_.size () != 1)
-      return resp::error ("bad command: argument count mismatch");
+      return resp::data::error ("bad command: argument count mismatch");
 
     auto &s0 = args_[0].get ();
     auto it = db_.find (s0);
@@ -92,7 +92,24 @@ private:
     if (it != db_.end ())
       return it->second.to_resp ();
     else
-      return resp::null_string ();
+      return resp::data::null_string ();
+  }
+
+  resp::data
+  exec_ping ()
+  {
+    switch (args_.size ())
+      {
+      case 0:
+	return resp::data::message ("PONG");
+      case 1:
+	{
+	  auto &s0 = args_[0].get ();
+	  return resp::data{ resp::bulk_string{ std::move (s0) } };
+	}
+      default:
+	return resp::data::error ("bad command: argument count mismatch");
+      }
   }
 
 private:
@@ -103,6 +120,7 @@ private:
   const storage::unordered_map<string_view, exec_type> cmds_{
     { "SET", &impl::exec_set },
     { "GET", &impl::exec_get },
+    { "PING", &impl::exec_ping },
   };
 }; // class executor
 

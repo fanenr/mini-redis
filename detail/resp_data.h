@@ -49,6 +49,42 @@ struct data
   typedef variant_wrapper base_type;
   using base_type::base_type;
 
+  static data
+  null_array ()
+  {
+    return data{ array{ boost::none } };
+  }
+
+  static data
+  null_string ()
+  {
+    return data{ bulk_string{ boost::none } };
+  }
+
+  static data
+  empty_array ()
+  {
+    return data{ array{ std::vector<data>{} } };
+  }
+
+  static data
+  empty_string ()
+  {
+    return data{ bulk_string{ std::string{} } };
+  }
+
+  static data
+  error (string_view msg)
+  {
+    return data{ simple_error{ msg.to_string () } };
+  }
+
+  static data
+  message (string_view msg)
+  {
+    return data{ simple_string{ msg.to_string () } };
+  }
+
   std::string
   encode () const
   {
@@ -115,42 +151,6 @@ struct data
       }
   }
 }; // class data
-
-inline data
-null_array ()
-{
-  return data{ array{ boost::none } };
-}
-
-inline data
-null_string ()
-{
-  return data{ bulk_string{ boost::none } };
-}
-
-inline data
-empty_array ()
-{
-  return data{ array{ std::vector<data>{} } };
-}
-
-inline data
-empty_string ()
-{
-  return data{ bulk_string{ std::string{} } };
-}
-
-inline data
-error (string_view msg)
-{
-  return data{ simple_error{ msg.to_string () } };
-}
-
-inline data
-success (string_view msg)
-{
-  return data{ simple_string{ msg.to_string () } };
-}
 
 } // namespace resp
 } // namespace detail

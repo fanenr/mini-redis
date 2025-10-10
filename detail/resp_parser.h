@@ -152,10 +152,9 @@ private:
 	// bad bulk string: invalid length
 	return pos1 + 2;
       }
-
     if (len == -1)
       {
-	out = null_string ();
+	out = data::null_string ();
 	return pos1 + 2;
       }
     if (len < 0)
@@ -230,14 +229,14 @@ private:
 	// bad array: invalid length
 	return pos + 2;
       }
-    if (len == 0)
-      {
-	out = empty_array ();
-	return pos + 2;
-      }
     if (len == -1)
       {
-	out = null_array ();
+	out = data::null_array ();
+	return pos + 2;
+      }
+    if (len == 0)
+      {
+	out = data::empty_array ();
 	return pos + 2;
       }
     if (len < 0)
