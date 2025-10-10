@@ -1,12 +1,10 @@
-#ifndef DETAIL_VARIANT_WRAPPER_H
-#define DETAIL_VARIANT_WRAPPER_H
+#ifndef VARIANT_WRAPPER_H
+#define VARIANT_WRAPPER_H
 
 #include "predef.h"
 #include "value_wrapper.h"
 
 namespace mini_redis
-{
-namespace detail
 {
 
 template <class... Ts>
@@ -92,7 +90,6 @@ struct variant_wrapper : variant<Ts...>
   }
 }; // class variant_wrapper
 
-} // namespace detail
 } // namespace mini_redis
 
-#endif // DETAIL_VARIANT_WRAPPER_H
+#endif // VARIANT_WRAPPER_H

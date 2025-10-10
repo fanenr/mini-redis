@@ -1,11 +1,9 @@
-#ifndef DETAIL_VALUE_WRAPPER_H
-#define DETAIL_VALUE_WRAPPER_H
+#ifndef VALUE_WRAPPER_H
+#define VALUE_WRAPPER_H
 
 #include "predef.h"
 
 namespace mini_redis
-{
-namespace detail
 {
 
 template <class T, int Tag>
@@ -76,7 +74,6 @@ struct is_value_wrapper<value_wrapper<T, Tag>> : std::true_type
 {
 };
 
-} // namespace detail
 } // namespace mini_redis
 
-#endif // DETAIL_VALUE_WRAPPER_H
+#endif // VALUE_WRAPPER_H

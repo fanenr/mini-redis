@@ -21,6 +21,6 @@ boost::system::error_code make_error_code (basic_errors e);
 } // namespace error
 } // namespace mini_redis
 
-#include "impl/error.h"
+#include "error_impl.h"
 
 #endif // ERROR_H

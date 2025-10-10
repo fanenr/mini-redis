@@ -1,9 +1,10 @@
-#ifndef IMPL_ERROR_H
-#define IMPL_ERROR_H
+#ifndef ERROR_IMPL_H
+#define ERROR_IMPL_H
 
-#include "../error.h"
+#include "error.h"
 
 #include <string>
+#include <system_error>
 
 namespace mini_redis
 {
@@ -72,4 +73,4 @@ struct is_error_code_enum<mini_redis::error::basic_errors> : std::true_type
 
 } // namespace std
 
-#endif // IMPL_ERROR_H
+#endif // ERROR_IMPL_H

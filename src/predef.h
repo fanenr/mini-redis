@@ -1,7 +1,5 @@
-#ifndef DETAIL_PREDEF_H
-#define DETAIL_PREDEF_H
-
-#include "../config.h"
+#ifndef PREDEF_H
+#define PREDEF_H
 
 #include <boost/asio.hpp>
 #include <boost/assert.hpp>
@@ -16,8 +14,6 @@
 
 namespace mini_redis
 {
-namespace detail
-{
 
 namespace asio = boost::asio;
 
@@ -31,7 +27,6 @@ using boost::variant2::variant;
 using boost::make_span;
 using boost::make_unique;
 
-} // namespace detail
 } // namespace mini_redis
 
-#endif // DETAIL_PREDEF_H
+#endif // PREDEF_H
