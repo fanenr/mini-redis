@@ -1,7 +1,5 @@
 #include "resp_parser.h"
 
-#include <boost/lexical_cast.hpp>
-
 namespace mini_redis
 {
 namespace resp
@@ -129,7 +127,6 @@ parser::parse_bulk_string (optional<data> &out)
     }
 
   std::int64_t len;
-  using boost::conversion::try_lexical_convert;
   if (!try_lexical_convert (buffer_.data () + 1, pos1 - 1, len))
     {
       // TODO: response error
@@ -180,7 +177,6 @@ parser::parse_integer (optional<data> &out)
     }
 
   std::int64_t num;
-  using boost::conversion::try_lexical_convert;
   if (!try_lexical_convert (buffer_.data () + 1, pos - 1, num))
     {
       // TODO: response error
@@ -206,7 +202,6 @@ parser::parse_array (optional<data> &out)
     }
 
   std::int64_t len;
-  using boost::conversion::try_lexical_convert;
   if (!try_lexical_convert (buffer_.data () + 1, pos - 1, len))
     {
       // TODO: response error
