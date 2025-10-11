@@ -41,8 +41,7 @@ struct data : data_base
   typedef data_base base_type;
   using base_type::base_type;
 
-  std::string encode () const;
-  static void encode (std::ostringstream &oss, const data &resp);
+  std::string to_string () const;
 }; // class data
 
 } // namespace resp

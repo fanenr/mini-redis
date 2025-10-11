@@ -49,7 +49,7 @@ session::process ()
     {
       auto cmd = parser_.pop ();
       auto cb{ [self] (resp::data result) {
-	self->results_.push_back (result.encode ());
+	self->results_.push_back (result.to_string ());
       } };
       executor_.post (std::move (cmd), cb);
     }

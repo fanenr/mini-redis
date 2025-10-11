@@ -5,16 +5,8 @@ namespace mini_redis
 namespace resp
 {
 
-std::string
-data::encode () const
-{
-  std::ostringstream oss;
-  encode (oss, *this);
-  return oss.str ();
-}
-
 void
-data::encode (std::ostringstream &oss, const data &resp)
+encode (std::ostringstream &oss, const data &resp)
 {
   switch (resp.index ())
     {
@@ -69,6 +61,14 @@ data::encode (std::ostringstream &oss, const data &resp)
     default:
       BOOST_THROW_EXCEPTION (std::logic_error ("bad data"));
     }
+}
+
+std::string
+data::to_string () const
+{
+  std::ostringstream oss;
+  encode (oss, *this);
+  return oss.str ();
 }
 
 } // namespace resp

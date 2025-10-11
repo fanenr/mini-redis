@@ -63,7 +63,6 @@ struct variant_wrapper : variant<Ts...>
 		   "U is not in the type list");
     return mp_find<L, U>::value;
   };
-
 }; // class variant_wrapper
 
 } // namespace mini_redis
