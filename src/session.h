@@ -1,7 +1,7 @@
 #ifndef SESSION_H
 #define SESSION_H
 
-#include "executor.h"
+#include "manager.h"
 #include "predef.h"
 #include "resp_data.h"
 #include "resp_parser.h"
@@ -17,8 +17,8 @@ class session : public std::enable_shared_from_this<session>
 public:
   typedef std::shared_ptr<session> pointer;
 
-  static pointer make (tcp::socket sock, executor &ex);
-  session (tcp::socket sock, executor &ex);
+  static pointer make (tcp::socket sock, manager &mgr);
+  session (tcp::socket sock, manager &mgr);
 
   void start ();
 
@@ -33,7 +33,7 @@ private:
   std::vector<std::string> results_;
 
   resp::parser parser_;
-  executor &executor_;
+  manager &manager_;
 }; // class session
 
 } // namespace mini_redis

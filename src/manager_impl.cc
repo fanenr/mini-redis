@@ -1,4 +1,4 @@
-#include "executor_impl.h"
+#include "manager_impl.h"
 
 namespace mini_redis
 {
@@ -38,20 +38,10 @@ integer (std::int64_t num)
 namespace mini_redis
 {
 
-executor_impl::executor_impl (config &cfg)
-    : config_ (cfg), cmds_{
-	{ "SET", &executor_impl::exec_set },
-	{ "GET", &executor_impl::exec_get },
-	{ "DEL", &executor_impl::exec_del },
-	{ "PING", &executor_impl::exec_ping },
-	{ "EXPIRE", &executor_impl::exec_expire },
-	{ "PEXPIRE", &executor_impl::exec_pexpire },
-      }
-{
-}
+manager_impl::manager_impl (config &cfg) : config_ (cfg) {}
 
 resp::data
-executor_impl::execute (resp::data resp)
+manager_impl::execute (resp::data resp)
 {
   if (!resp.is<resp::array> ())
     return simple_error ("bad command: not array");
@@ -82,10 +72,10 @@ executor_impl::execute (resp::data resp)
 }
 
 resp::data
-executor_impl::exec (string_view cmd)
+manager_impl::exec (string_view cmd)
 {
-  auto it = cmds_.find (cmd);
-  if (it != cmds_.end ())
+  auto it = exec_map_.find (cmd);
+  if (it != exec_map_.end ())
     {
       auto fn = it->second;
       return (this->*fn) ();
@@ -94,7 +84,7 @@ executor_impl::exec (string_view cmd)
 }
 
 resp::data
-executor_impl::exec_set ()
+manager_impl::exec_set ()
 {
   // SET key value [NX | XX] [GET] [EX seconds | PX milliseconds |
   //   EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]
@@ -118,16 +108,14 @@ executor_impl::exec_set ()
 
   // TODO: support expires
 
-  ttl_.erase (s0);
-
-  storage::data data{ storage::raw{ std::move (s1) } };
-  db_.insert_or_assign (std::move (s0), std::move (data));
+  db::data data{ db::raw{ std::move (s1) } };
+  storage_.insert (std::move (s0), std::move (data));
 
   return simple_string ("OK");
 }
 
 resp::data
-executor_impl::exec_get ()
+manager_impl::exec_get ()
 {
   // GET key
 
@@ -140,20 +128,20 @@ executor_impl::exec_get ()
 
   auto &s0 = args_[0].get ();
 
-  auto it = db_find (s0);
-  if (it == db_.end ())
+  auto it = storage_.find (s0);
+  if (it == storage_.end ())
     return null_bulk_string ();
 
   auto &data = it->second;
-  if (!data.is<storage::raw> ())
+  if (!data.is<db::raw> ())
     return simple_error ("WRONGTYPE");
 
-  const auto &str = data.get<storage::raw> ();
+  const auto &str = data.get<db::raw> ();
   return bulk_string (str);
 }
 
 resp::data
-executor_impl::exec_del ()
+manager_impl::exec_del ()
 {
   // DEL key [key ...]
 
@@ -167,10 +155,10 @@ executor_impl::exec_del ()
   for (auto ref : args_)
     {
       const auto &key = ref.get ();
-      auto it = db_find (key);
-      if (it != db_.end ())
+      auto it = storage_.find (key);
+      if (it != storage_.end ())
 	{
-	  db_erase (it);
+	  storage_.erase (it);
 	  num++;
 	}
     }
@@ -179,7 +167,7 @@ executor_impl::exec_del ()
 }
 
 resp::data
-executor_impl::exec_ping ()
+manager_impl::exec_ping ()
 {
   // PING [message]
 
@@ -204,7 +192,7 @@ executor_impl::exec_ping ()
 }
 
 resp::data
-executor_impl::exec_expire ()
+manager_impl::exec_expire ()
 {
   // EXPIRE key seconds [NX | XX | GT | LT]
 
@@ -223,8 +211,8 @@ executor_impl::exec_expire ()
   auto &s0 = args_[0].get ();
   auto &s1 = args_[1].get ();
 
-  auto it = db_find (s0);
-  if (it == db_.end ())
+  auto it = storage_.find (s0);
+  if (it == storage_.end ())
     return bad;
 
   std::int64_t secs;
@@ -233,18 +221,17 @@ executor_impl::exec_expire ()
 
   if (secs <= 0)
     {
-      db_erase (it);
+      storage_.erase (it);
       return win;
     }
 
-  auto expire = clock_type::now () + seconds (secs);
-  ttl_.insert_or_assign (std::move (s0), expire);
+  storage_.expire_after (it, seconds (secs));
 
   return win;
 }
 
 resp::data
-executor_impl::exec_pexpire ()
+manager_impl::exec_pexpire ()
 {
   // PEXPIRE key milliseconds [NX | XX | GT | LT]
 
@@ -263,53 +250,23 @@ executor_impl::exec_pexpire ()
   auto &s0 = args_[0].get ();
   auto &s1 = args_[1].get ();
 
-  auto it = db_find (s0);
-  if (it == db_.end ())
+  auto it = storage_.find (s0);
+  if (it == storage_.end ())
     return bad;
 
-  std::int64_t msecs;
-  if (!try_lexical_convert (s1, msecs))
+  std::int64_t secs;
+  if (!try_lexical_convert (s1, secs))
     return bad;
 
-  if (msecs <= 0)
+  if (secs <= 0)
     {
-      db_erase (it);
+      storage_.erase (it);
       return win;
     }
 
-  auto expire = clock_type::now () + milliseconds (msecs);
-  ttl_.insert_or_assign (std::move (s0), expire);
+  storage_.expire_after (it, milliseconds (secs));
 
   return win;
-}
-
-auto
-executor_impl::db_find (const std::string &key) -> executor_impl::db_iterator
-{
-  auto db_it = db_.find (key);
-  if (db_it == db_.end ())
-    return db_it;
-
-  auto ttl_it = ttl_.find (key);
-  if (ttl_it == ttl_.end ())
-    return db_it;
-
-  auto expire = ttl_it->second;
-  auto now = clock_type::now ();
-  if (now < expire)
-    return db_it;
-
-  db_erase (db_it);
-  return db_.end ();
-}
-
-void
-executor_impl::db_erase (db_iterator it)
-{
-  BOOST_ASSERT (it != db_.end ());
-  auto &key = it->first;
-  ttl_.erase (key);
-  db_.erase (it);
 }
 
 } // namespace mini_redis

@@ -2,7 +2,7 @@
 #define SERVER_H
 
 #include "config.h"
-#include "executor.h"
+#include "manager.h"
 #include "predef.h"
 
 namespace mini_redis
@@ -29,7 +29,7 @@ private:
   tcp::acceptor acceptor_;
   asio::signal_set signals_;
 
-  executor executor_;
+  manager manager_;
 }; // class server
 
 } // namespace mini_redis

@@ -4,13 +4,13 @@ namespace mini_redis
 {
 
 session::pointer
-session::make (tcp::socket sock, executor &ex)
+session::make (tcp::socket sock, manager &mgr)
 {
-  return std::make_shared<session> (std::move (sock), ex);
+  return std::make_shared<session> (std::move (sock), mgr);
 }
 
-session::session (tcp::socket sock, executor &ex)
-    : socket_ (std::move (sock)), executor_ (ex)
+session::session (tcp::socket sock, manager &mgr)
+    : socket_ (std::move (sock)), manager_ (mgr)
 {
 }
 
@@ -51,11 +51,11 @@ session::process ()
       auto cb{ [self] (resp::data result) {
 	self->results_.push_back (result.to_string ());
       } };
-      executor_.post (std::move (cmd), cb);
+      manager_.post (std::move (cmd), cb);
     }
 
   auto task{ [self] () { self->start_send (); } };
-  executor_.post (task);
+  manager_.post (task);
 }
 
 void

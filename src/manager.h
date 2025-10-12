@@ -1,23 +1,23 @@
-#ifndef EXECUTOR_H
-#define EXECUTOR_H
+#ifndef MANAGER_H
+#define MANAGER_H
 
 #include "config.h"
-#include "executor_impl.h"
+#include "manager_impl.h"
 #include "predef.h"
 #include "resp_data.h"
 
 namespace mini_redis
 {
 
-class executor
+class manager
 {
 public:
-  executor (asio::any_io_executor ex, config &cfg)
-      : strand_ (ex), impl_ (new executor_impl (cfg))
+  manager (asio::any_io_executor ex, config &cfg)
+      : strand_ (ex), impl_ (new manager_impl (cfg))
   {
   }
 
-  ~executor () { delete impl_; }
+  ~manager () { delete impl_; }
 
   template <class Task>
   inline void
@@ -58,9 +58,9 @@ public:
 
 private:
   asio::strand<asio::any_io_executor> strand_;
-  executor_impl *impl_;
+  manager_impl *impl_;
 }; // class executor
 
 } // namespace mini_redis
 
-#endif // EXECUTOR_H
+#endif // MANAGER_H

@@ -8,7 +8,7 @@ server::server (int port, config cfg)
     : config_ (std::move (cfg)),
       acceptor_ (ioc_, tcp::endpoint (tcp::v4 (), port)),
       signals_ (ioc_, SIGINT, SIGTERM),
-      executor_ (ioc_.get_executor (), config_)
+      manager_ (ioc_.get_executor (), config_)
 {
   wait_signals ();
 }
@@ -50,7 +50,7 @@ server::start_accept ()
     if (ec)
       return this->stop ();
 
-    session::make (std::move (sock), executor_)->start ();
+    session::make (std::move (sock), manager_)->start ();
 
     this->start_accept ();
   } };
