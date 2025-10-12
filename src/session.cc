@@ -28,11 +28,11 @@ session::start_recv ()
     if (ec)
       return self->close ();
 
-    self->parser_.append ({ self->buffer_.data (), n });
+    self->parser_.append ({ self->recv_buffer_.data (), n });
     self->parser_.parse ();
     self->process ();
   } };
-  socket_.async_receive (asio::buffer (buffer_), handle_receive);
+  socket_.async_receive (asio::buffer (recv_buffer_), handle_receive);
 }
 
 void
@@ -49,8 +49,8 @@ session::process ()
     while (!self->parser_.empty ())
       {
 	auto cmd = self->parser_.pop ();
-	auto result = pro->execute (std::move ((cmd)));
-	self->results_.push_back (result.encode ());
+	auto result = pro->execute (std::move (cmd));
+	self->results_.push_back (std::move (result));
       }
 
     auto start_send{ [self] () { self->start_send (); } };
@@ -63,10 +63,15 @@ session::process ()
 void
 session::start_send ()
 {
+  send_buffers_.clear ();
+  send_buffers_.reserve (results_.size ());
+  for (const auto &resp : results_)
+    send_buffers_.push_back (resp.encode ());
+
   std::vector<asio::const_buffer> buffers;
-  buffers.reserve (results_.size ());
-  for (const auto &result : results_)
-    buffers.push_back (asio::buffer (result));
+  buffers.reserve (send_buffers_.size ());
+  for (const auto &str : send_buffers_)
+    buffers.push_back (asio::buffer (str));
 
   auto self = shared_from_this ();
   auto handle_write{ [self] (const error_code &ec, std::size_t) {

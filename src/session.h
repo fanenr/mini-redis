@@ -30,11 +30,12 @@ private:
 
 private:
   tcp::socket socket_;
-  std::array<char, 4096> buffer_;
-  std::vector<std::string> results_;
+  std::vector<resp::data> results_;
+  std::array<char, 4096> recv_buffer_;
+  std::vector<std::string> send_buffers_;
 
-  resp::parser parser_;
   manager &manager_;
+  resp::parser parser_;
 }; // class session
 
 } // namespace mini_redis
