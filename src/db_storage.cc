@@ -70,7 +70,7 @@ storage::expire_at (iterator it, time_point at)
 }
 
 auto
-storage::expire (iterator it) -> optional<time_point>
+storage::ttl (iterator it) -> optional<duration>
 {
   BOOST_ASSERT (it != db_.end ());
   const auto &key = it->first;
@@ -79,7 +79,9 @@ storage::expire (iterator it) -> optional<time_point>
   if (ttl_it == ttl_.end ())
     return boost::none;
 
-  return ttl_it->second;
+  auto expire = ttl_it->second;
+  auto now = clock_type::now ();
+  return expire - now;
 }
 
 } // namespace db

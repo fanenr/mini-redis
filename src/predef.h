@@ -42,6 +42,8 @@ using chrono::seconds;
 using chrono::steady_clock;
 using chrono::system_clock;
 
+using chrono::duration_cast;
+
 } // namespace mini_redis
 
 #endif // PREDEF_H

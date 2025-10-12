@@ -83,6 +83,33 @@ manager_impl::exec (string_view cmd)
   return simple_error ("bad command: unknown command");
 }
 
+const auto invalid_arguments = simple_error ("bad command: invalid arguments");
+
+resp::data
+manager_impl::exec_ping ()
+{
+  // PING [message]
+
+  // RETURN:
+  // - simple string: PONG when no argument is provided.
+  // - bulk string: the provided argument.
+
+  switch (args_.size ())
+    {
+    case 0:
+      return simple_string ("PONG");
+
+    case 1:
+      {
+	auto &s0 = args_[0].get ();
+	return resp::data{ resp::bulk_string{ std::move (s0) } };
+      }
+
+    default:
+      return invalid_arguments;
+    }
+}
+
 resp::data
 manager_impl::exec_set ()
 {
@@ -101,7 +128,7 @@ manager_impl::exec_set ()
   //                  key was not set. Otherwise, the key was set.
 
   if (args_.size () < 2)
-    return simple_error ("bad command: invalid arguments");
+    return invalid_arguments;
 
   auto &s0 = args_[0].get ();
   auto &s1 = args_[1].get ();
@@ -124,7 +151,7 @@ manager_impl::exec_get ()
   // - nil: if the key does not exist.
 
   if (args_.size () != 1)
-    return simple_error ("bad command: invalid arguments");
+    return invalid_arguments;
 
   auto &s0 = args_[0].get ();
 
@@ -149,7 +176,7 @@ manager_impl::exec_del ()
   // - integer: the number of keys that were removed.
 
   if (args_.size () < 1)
-    return simple_error ("bad command: invalid arguments");
+    return invalid_arguments;
 
   std::int64_t num = 0;
   for (auto ref : args_)
@@ -167,31 +194,6 @@ manager_impl::exec_del ()
 }
 
 resp::data
-manager_impl::exec_ping ()
-{
-  // PING [message]
-
-  // RETURN:
-  // - simple string: PONG when no argument is provided.
-  // - bulk string: the provided argument.
-
-  switch (args_.size ())
-    {
-    case 0:
-      return simple_string ("PONG");
-
-    case 1:
-      {
-	auto &s0 = args_[0].get ();
-	return resp::data{ resp::bulk_string{ std::move (s0) } };
-      }
-
-    default:
-      return simple_error ("bad command: invalid arguments");
-    }
-}
-
-resp::data
 manager_impl::exec_expire ()
 {
   // EXPIRE key seconds [NX | XX | GT | LT]
@@ -206,7 +208,7 @@ manager_impl::exec_expire ()
   auto win = integer (1);
 
   if (args_.size () < 2)
-    return simple_error ("bad command: invalid arguments");
+    return invalid_arguments;
 
   auto &s0 = args_[0].get ();
   auto &s1 = args_[1].get ();
@@ -245,7 +247,7 @@ manager_impl::exec_pexpire ()
   auto win = integer (1);
 
   if (args_.size () < 2)
-    return simple_error ("bad command: invalid arguments");
+    return invalid_arguments;
 
   auto &s0 = args_[0].get ();
   auto &s1 = args_[1].get ();
@@ -254,19 +256,85 @@ manager_impl::exec_pexpire ()
   if (it == storage_.end ())
     return bad;
 
-  std::int64_t secs;
-  if (!try_lexical_convert (s1, secs))
+  std::int64_t msecs;
+  if (!try_lexical_convert (s1, msecs))
     return bad;
 
-  if (secs <= 0)
+  if (msecs <= 0)
     {
       storage_.erase (it);
       return win;
     }
 
-  storage_.expire_after (it, milliseconds (secs));
+  storage_.expire_after (it, milliseconds (msecs));
 
   return win;
+}
+
+resp::data
+manager_impl::exec_ttl ()
+{
+  // TTL key
+
+  // RETURN:
+  // - integer: TTL in seconds.
+  // - integer: -1 if the key exists but has no associated expiration.
+  // - integer: -2 if the key does not exist.
+
+  if (args_.size () != 1)
+    return invalid_arguments;
+
+  auto &s0 = args_[0].get ();
+
+  auto it = storage_.find (s0);
+  if (it == storage_.end ())
+    return integer (-2);
+
+  auto ttl = storage_.ttl (it);
+  if (!ttl)
+    return integer (-1);
+
+  auto secs = duration_cast<seconds> (*ttl).count ();
+  if (secs <= 0)
+    {
+      storage_.erase (it);
+      return integer (-2);
+    }
+
+  return integer (secs);
+}
+
+resp::data
+manager_impl::exec_pttl ()
+{
+  // PTTL key
+
+  // RETURN:
+  // - integer: TTL in milliseconds.
+  // - integer: -1 if the key exists but has no associated expiration.
+  // - integer: -2 if the key does not exist.
+
+  if (args_.size () != 1)
+    return invalid_arguments;
+
+  auto &s0 = args_[0].get ();
+
+  auto it = storage_.find (s0);
+  if (it == storage_.end ())
+    return integer (-2);
+
+  auto ttl = storage_.ttl (it);
+  if (!ttl)
+    return integer (-1);
+
+  auto secs = duration_cast<milliseconds> (*ttl).count ();
+  if (secs <= 0)
+    {
+      storage_.erase (it);
+      return integer (-2);
+    }
+
+  return integer (secs);
 }
 
 } // namespace mini_redis

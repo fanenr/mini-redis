@@ -22,6 +22,8 @@ private:
   resp::data exec_set ();
   resp::data exec_get ();
   resp::data exec_del ();
+  resp::data exec_ttl ();
+  resp::data exec_pttl ();
   resp::data exec_ping ();
   resp::data exec_expire ();
   resp::data exec_pexpire ();
@@ -33,12 +35,14 @@ private:
 
   typedef resp::data (manager_impl::*exec_fn) ();
   const unordered_flat_map<string_view, exec_fn> exec_map_{
+    { "PING", &manager_impl::exec_ping },
     { "SET", &manager_impl::exec_set },
     { "GET", &manager_impl::exec_get },
     { "DEL", &manager_impl::exec_del },
-    { "PING", &manager_impl::exec_ping },
     { "EXPIRE", &manager_impl::exec_expire },
     { "PEXPIRE", &manager_impl::exec_pexpire },
+    { "TTL", &manager_impl::exec_ttl },
+    { "PTTL", &manager_impl::exec_pttl },
   };
 }; // class executor::impl
 
