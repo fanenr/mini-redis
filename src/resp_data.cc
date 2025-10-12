@@ -6,7 +6,7 @@ namespace resp
 {
 
 void
-encode (std::ostringstream &oss, const data &resp)
+encode_impl (std::ostringstream &oss, const data &resp)
 {
   switch (resp.index ())
     {
@@ -51,7 +51,7 @@ encode (std::ostringstream &oss, const data &resp)
 	    const auto &vec = arr.value ();
 	    oss << vec.size () << "\r\n";
 	    for (const auto &i : vec)
-	      encode (oss, i);
+	      encode_impl (oss, i);
 	  }
 	else
 	  oss << -1 << "\r\n";
@@ -64,10 +64,10 @@ encode (std::ostringstream &oss, const data &resp)
 }
 
 std::string
-data::to_string () const
+data::encode () const
 {
-  std::ostringstream oss;
-  encode (oss, *this);
+  std::ostringstream oss{};
+  encode_impl (oss, *this);
   return oss.str ();
 }
 

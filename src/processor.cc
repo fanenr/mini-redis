@@ -1,4 +1,4 @@
-#include "manager_impl.h"
+#include "processor.h"
 
 namespace mini_redis
 {
@@ -33,60 +33,55 @@ integer (std::int64_t num)
   return resp::data{ resp::integer{ num } };
 }
 
+const auto invalid_arguments = simple_error ("invalid arguments");
+const auto wrong_type = simple_error ("wrong type");
+
 } // namespace mini_redis
 
 namespace mini_redis
 {
 
-manager_impl::manager_impl (config &cfg) : config_ (cfg) {}
+processor::processor (config &cfg) : config_ (cfg) {}
 
 resp::data
-manager_impl::execute (resp::data resp)
+processor::execute (resp::data resp)
 {
   if (!resp.is<resp::array> ())
-    return simple_error ("bad command: not array");
+    return simple_error ("not array");
 
   auto &arr = resp.get<resp::array> ();
   if (!arr.has_value ())
-    return simple_error ("bad command: null array");
+    return simple_error ("null array");
 
   auto &vec = arr.value ();
   if (vec.empty ())
-    return simple_error ("bad command: empty array");
+    return simple_error ("empty array");
 
   auto validator{ [] (const resp::data &resp) {
     auto p = resp.get_if<resp::bulk_string> ();
     return p && p->has_value ();
   } };
   if (!std::all_of (vec.begin (), vec.end (), validator))
-    return simple_error ("bad command: invalid arguments");
-
-  auto &cmd = vec.front ().get<resp::bulk_string> ().value ();
+    return simple_error ("invalid arguments");
 
   args_.clear ();
   args_.reserve (vec.size () - 1);
   for (auto it = vec.begin () + 1; it != vec.end (); it++)
     args_.push_back (it->get<resp::bulk_string> ().value ());
 
-  return exec (cmd);
-}
-
-resp::data
-manager_impl::exec (string_view cmd)
-{
+  const auto &cmd = vec[0].get<resp::bulk_string> ().value ();
   auto it = exec_map_.find (cmd);
   if (it != exec_map_.end ())
     {
       auto fn = it->second;
       return (this->*fn) ();
     }
-  return simple_error ("bad command: unknown command");
+
+  return simple_error ("unknown command");
 }
 
-const auto invalid_arguments = simple_error ("bad command: invalid arguments");
-
 resp::data
-manager_impl::exec_ping ()
+processor::exec_ping ()
 {
   // PING [message]
 
@@ -111,7 +106,7 @@ manager_impl::exec_ping ()
 }
 
 resp::data
-manager_impl::exec_set ()
+processor::exec_set ()
 {
   // SET key value [NX | XX] [GET] [EX seconds | PX milliseconds |
   //   EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL]
@@ -135,14 +130,14 @@ manager_impl::exec_set ()
 
   // TODO: support expires
 
-  db::data data{ db::raw{ std::move (s1) } };
+  db::data data{ db::string{ std::move (s1) } };
   storage_.insert (std::move (s0), std::move (data));
 
   return simple_string ("OK");
 }
 
 resp::data
-manager_impl::exec_get ()
+processor::exec_get ()
 {
   // GET key
 
@@ -160,15 +155,23 @@ manager_impl::exec_get ()
     return null_bulk_string ();
 
   auto &data = it->second;
-  if (!data.is<db::raw> ())
-    return simple_error ("WRONGTYPE");
+  if (data.is<db::string> ())
+    {
+      const auto &str = data.get<db::string> ();
+      return bulk_string (str);
+    }
+  else if (data.is<db::integer> ())
+    {
+      const auto &num = data.get<db::integer> ();
+      auto str = lexical_cast<std::string> (num);
+      return bulk_string (std::move (str));
+    }
 
-  const auto &str = data.get<db::raw> ();
-  return bulk_string (str);
+  return wrong_type;
 }
 
 resp::data
-manager_impl::exec_del ()
+processor::exec_del ()
 {
   // DEL key [key ...]
 
@@ -194,7 +197,7 @@ manager_impl::exec_del ()
 }
 
 resp::data
-manager_impl::exec_expire ()
+processor::exec_expire ()
 {
   // EXPIRE key seconds [NX | XX | GT | LT]
 
@@ -204,36 +207,11 @@ manager_impl::exec_expire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  auto bad = integer (0);
-  auto win = integer (1);
-
-  if (args_.size () < 2)
-    return invalid_arguments;
-
-  auto &s0 = args_[0].get ();
-  auto &s1 = args_[1].get ();
-
-  auto it = storage_.find (s0);
-  if (it == storage_.end ())
-    return bad;
-
-  std::int64_t secs;
-  if (!try_lexical_convert (s1, secs))
-    return bad;
-
-  if (secs <= 0)
-    {
-      storage_.erase (it);
-      return win;
-    }
-
-  storage_.expire_after (it, seconds (secs));
-
-  return win;
+  return generic_expire<seconds> ();
 }
 
 resp::data
-manager_impl::exec_pexpire ()
+processor::exec_pexpire ()
 {
   // PEXPIRE key milliseconds [NX | XX | GT | LT]
 
@@ -243,6 +221,13 @@ manager_impl::exec_pexpire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
+  return generic_expire<milliseconds> ();
+}
+
+template <class Duration>
+resp::data
+processor::generic_expire ()
+{
   auto bad = integer (0);
   auto win = integer (1);
 
@@ -256,23 +241,23 @@ manager_impl::exec_pexpire ()
   if (it == storage_.end ())
     return bad;
 
-  std::int64_t msecs;
-  if (!try_lexical_convert (s1, msecs))
+  std::int64_t dur;
+  if (!try_lexical_convert (s1, dur))
     return bad;
 
-  if (msecs <= 0)
+  if (dur <= 0)
     {
       storage_.erase (it);
       return win;
     }
 
-  storage_.expire_after (it, milliseconds (msecs));
+  storage_.expire_after (it, Duration (dur));
 
   return win;
 }
 
 resp::data
-manager_impl::exec_ttl ()
+processor::exec_ttl ()
 {
   // TTL key
 
@@ -281,31 +266,11 @@ manager_impl::exec_ttl ()
   // - integer: -1 if the key exists but has no associated expiration.
   // - integer: -2 if the key does not exist.
 
-  if (args_.size () != 1)
-    return invalid_arguments;
-
-  auto &s0 = args_[0].get ();
-
-  auto it = storage_.find (s0);
-  if (it == storage_.end ())
-    return integer (-2);
-
-  auto ttl = storage_.ttl (it);
-  if (!ttl)
-    return integer (-1);
-
-  auto secs = duration_cast<seconds> (*ttl).count ();
-  if (secs <= 0)
-    {
-      storage_.erase (it);
-      return integer (-2);
-    }
-
-  return integer (secs);
+  return generic_ttl<seconds> ();
 }
 
 resp::data
-manager_impl::exec_pttl ()
+processor::exec_pttl ()
 {
   // PTTL key
 
@@ -314,6 +279,13 @@ manager_impl::exec_pttl ()
   // - integer: -1 if the key exists but has no associated expiration.
   // - integer: -2 if the key does not exist.
 
+  return generic_ttl<milliseconds> ();
+}
+
+template <class Duration>
+resp::data
+processor::generic_ttl ()
+{
   if (args_.size () != 1)
     return invalid_arguments;
 
@@ -327,14 +299,117 @@ manager_impl::exec_pttl ()
   if (!ttl)
     return integer (-1);
 
-  auto secs = duration_cast<milliseconds> (*ttl).count ();
-  if (secs <= 0)
+  auto dur = duration_cast<Duration> (*ttl).count ();
+  if (dur <= 0)
     {
       storage_.erase (it);
       return integer (-2);
     }
 
-  return integer (secs);
+  return integer (dur);
+}
+
+resp::data
+processor::exec_incr ()
+{
+  // INCR key
+
+  // RETURN:
+  // - integer: the value of the key after the increment.
+
+  return generic_calc<std::plus> ();
+}
+
+resp::data
+processor::exec_incrby ()
+{
+  // INCRBY key increment
+
+  // RETURN:
+  // - integer: the value of the key after the increment.
+
+  return generic_calc<std::plus> ();
+}
+
+resp::data
+processor::exec_decr ()
+{
+  // DECR key
+
+  // RETURN:
+  // - integer: the value of the key after decrementing it.
+
+  return generic_calc<std::minus> ();
+}
+
+resp::data
+processor::exec_decrby ()
+{
+  // DECRBY key decrement
+
+  // RETURN:
+  // - integer: the value of the key after decrementing it.
+
+  return generic_calc<std::minus> ();
+}
+
+template <template <class T> class Op>
+resp::data
+processor::generic_calc ()
+{
+  auto oper = Op<std::int64_t>{};
+  std::int64_t rhs;
+
+  switch (args_.size ())
+    {
+    case 1:
+      rhs = 1;
+      break;
+
+    case 2:
+      {
+	auto &s1 = args_[1].get ();
+	if (!try_lexical_convert (s1, rhs))
+	  return wrong_type;
+      }
+      break;
+
+    default:
+      return invalid_arguments;
+    }
+
+  auto &s0 = args_[0].get ();
+
+  auto it = storage_.find (s0);
+  if (it == storage_.end ())
+    {
+      auto num = oper (0, rhs);
+      db::data data{ db::integer{ num } };
+      storage_.insert (std::move (s0), std::move (data));
+      return integer (num);
+    }
+
+  auto &data = it->second;
+  if (data.is<db::integer> ())
+    {
+      auto &num = data.get<db::integer> ();
+      num = oper (num, rhs);
+      return integer (num);
+    }
+  else if (data.is<db::string> ())
+    {
+      const auto &str = data.get<db::string> ();
+
+      std::int64_t num;
+      if (!try_lexical_convert (str, num))
+	return wrong_type;
+
+      num = oper (num, rhs);
+      data = db::data{ db::integer{ num } };
+      return integer (num);
+    }
+
+  return wrong_type;
 }
 
 } // namespace mini_redis

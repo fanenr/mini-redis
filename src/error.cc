@@ -1,10 +1,6 @@
-#ifndef ERROR_IMPL_H
-#define ERROR_IMPL_H
-
 #include "error.h"
 
 #include <string>
-#include <system_error>
 
 namespace mini_redis
 {
@@ -33,14 +29,14 @@ public:
   }
 };
 
-inline const boost::system::error_category &
+const boost::system::error_category &
 get_basic_category ()
 {
-  static const basic_category instance;
+  static basic_category instance;
   return instance;
 }
 
-inline boost::system::error_code
+boost::system::error_code
 make_error_code (basic_errors e)
 {
   return boost::system::error_code (static_cast<int> (e),
@@ -49,28 +45,3 @@ make_error_code (basic_errors e)
 
 } // namespace error
 } // namespace mini_redis
-
-namespace boost
-{
-namespace system
-{
-
-template <>
-struct is_error_code_enum<mini_redis::error::basic_errors> : std::true_type
-{
-};
-
-} // namespace system
-} // namespace boost
-
-namespace std
-{
-
-template <>
-struct is_error_code_enum<mini_redis::error::basic_errors> : std::true_type
-{
-};
-
-} // namespace std
-
-#endif // ERROR_IMPL_H

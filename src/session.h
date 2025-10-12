@@ -26,6 +26,7 @@ private:
   void start_recv ();
   void process ();
   void start_send ();
+  void close ();
 
 private:
   tcp::socket socket_;

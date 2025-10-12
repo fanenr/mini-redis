@@ -15,21 +15,21 @@ namespace mini_redis
 namespace db
 {
 
-typedef value_wrapper<std::string, 0> raw;
+typedef value_wrapper<std::string, 0> string;
 typedef value_wrapper<std::int64_t, 1> integer;
 typedef value_wrapper<std::deque<std::string>, 2> list;
 typedef value_wrapper<unordered_flat_set<std::string>, 3> set;
 typedef value_wrapper<unordered_flat_map<std::string, std::string>, 4>
     hashtable;
 
-typedef variant_wrapper<raw, integer, list, set, hashtable> data_base;
+typedef variant_wrapper<string, integer, list, set, hashtable> data_base;
 
 struct data : data_base
 {
   typedef data_base base_type;
   using base_type::base_type;
 
-  // resp::data to_resp () const;
+  resp::data to_resp () const;
 }; // class data
 
 } // namespace db

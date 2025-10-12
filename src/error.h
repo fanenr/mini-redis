@@ -2,6 +2,7 @@
 #define ERROR_H
 
 #include <boost/system.hpp>
+#include <system_error>
 
 namespace mini_redis
 {
@@ -21,6 +22,27 @@ boost::system::error_code make_error_code (basic_errors e);
 } // namespace error
 } // namespace mini_redis
 
-#include "error_impl.h"
+namespace boost
+{
+namespace system
+{
+
+template <>
+struct is_error_code_enum<mini_redis::error::basic_errors> : std::true_type
+{
+};
+
+} // namespace system
+} // namespace boost
+
+namespace std
+{
+
+template <>
+struct is_error_code_enum<mini_redis::error::basic_errors> : std::true_type
+{
+};
+
+} // namespace std
 
 #endif // ERROR_H

@@ -24,15 +24,15 @@ void
 session::start_recv ()
 {
   auto self = shared_from_this ();
-  auto handle_recv{ [self] (const error_code &ec, std::size_t n) {
+  auto handle_receive{ [self] (const error_code &ec, std::size_t n) {
     if (ec)
-      self->socket_.close ();
+      return self->close ();
 
     self->parser_.append ({ self->buffer_.data (), n });
     self->parser_.parse ();
     self->process ();
   } };
-  socket_.async_receive (asio::buffer (buffer_), handle_recv);
+  socket_.async_receive (asio::buffer (buffer_), handle_receive);
 }
 
 void
@@ -45,16 +45,18 @@ session::process ()
   results_.reserve (parser_.size ());
 
   auto self = shared_from_this ();
-  while (!parser_.empty ())
-    {
-      auto cmd = parser_.pop ();
-      auto cb{ [self] (resp::data result) {
-	self->results_.push_back (result.to_string ());
-      } };
-      manager_.post (std::move (cmd), cb);
-    }
+  auto task{ [self] (processor *pro) {
+    while (!self->parser_.empty ())
+      {
+	auto cmd = self->parser_.pop ();
+	auto result = pro->execute (std::move ((cmd)));
+	self->results_.push_back (result.encode ());
+      }
 
-  auto task{ [self] () { self->start_send (); } };
+    auto start_send{ [self] () { self->start_send (); } };
+    auto ex = self->socket_.get_executor ();
+    asio::post (ex, start_send);
+  } };
   manager_.post (task);
 }
 
@@ -69,11 +71,17 @@ session::start_send ()
   auto self = shared_from_this ();
   auto handle_write{ [self] (const error_code &ec, std::size_t) {
     if (ec)
-      self->socket_.close ();
+      return self->close ();
 
     self->start_recv ();
   } };
   asio::async_write (socket_, buffers, handle_write);
+}
+
+void
+session::close ()
+{
+  socket_.close ();
 }
 
 } // namespace mini_redis
