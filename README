@@ -1,0 +1,27 @@
+MINI REDIS
+==========
+
+A Redis server implemented with C++11 and Boost.
+
+FEATURES
+--------
+
+*   Fully implements the RESP2 protocol
+*   Supported Redis commands: PING, SET, GET, DEL, EXPIRE, PEXPIRE, EXPIREAT, PEXPIREAT, TTL, PTTL, INCR, INCRBY, DECR, DECRBY
+
+DEPENDENCIES
+------------
+
+*   A C++ compiler supporting the C++11 standard
+*   Boost Library installed on the system
+
+BUILD
+-----
+
+    $ cmake -B build
+    $ cmake --build build
+
+RUN
+---
+
+    $ ./build/server
