@@ -96,8 +96,8 @@ processor::exec_ping ()
 
     case 1:
       {
-	auto &s0 = args_[0].get ();
-	return resp::data{ resp::bulk_string{ std::move (s0) } };
+	auto &msg = args_[0].get ();
+	return resp::data{ resp::bulk_string{ std::move (msg) } };
       }
 
     default:
@@ -125,15 +125,119 @@ processor::exec_set ()
   if (args_.size () < 2)
     return invalid_arguments;
 
-  auto &s0 = args_[0].get ();
-  auto &s1 = args_[1].get ();
+  auto &key = args_[0].get ();
+  auto &value = args_[1].get ();
 
-  // TODO: support expires
+  bool nx = false;
+  bool xx = false;
+  bool get = false;
+  bool ex = false;
+  bool px = false;
+  bool exat = false;
+  bool pxat = false;
+  bool keepttl = false;
+  std::int64_t num = 0;
 
-  db::data data{ db::string{ std::move (s1) } };
-  storage_.insert (std::move (s0), std::move (data));
+  for (std::size_t i = 2; i < args_.size (); i++)
+    {
+      const auto &str = args_[i].get ();
+      if (str == "NX")
+	{
+	  if (nx || xx)
+	    return invalid_arguments;
+	  nx = true;
+	}
+      else if (str == "XX")
+	{
+	  if (nx || xx)
+	    return invalid_arguments;
+	  xx = true;
+	}
+      else if (str == "GET")
+	{
+	  if (get)
+	    return invalid_arguments;
+	  get = true;
+	}
+      else if (str == "KEEPTTL")
+	{
+	  if (ex || px || exat || pxat || keepttl)
+	    return invalid_arguments;
+	  keepttl = true;
+	}
+      else if (str == "EX" || str == "PX" || str == "EXAT" || str == "PXAT")
+	{
+	  if (ex || px || exat || pxat || keepttl)
+	    return invalid_arguments;
 
-  return simple_string ("OK");
+	  if (str == "EX")
+	    ex = true;
+	  else if (str == "PX")
+	    px = true;
+	  else if (str == "EXAT")
+	    exat = true;
+	  else if (str == "PXAT")
+	    pxat = true;
+
+	  i++;
+	  if (i >= args_.size ())
+	    return invalid_arguments;
+
+	  const auto &str = args_[i].get ();
+	  if (!try_lexical_convert (str, num) || num <= 0)
+	    return invalid_arguments;
+	}
+      else
+	return invalid_arguments;
+    }
+
+  auto it = storage_.find (key);
+  bool exists = (it != storage_.end ());
+  resp::data old = null_bulk_string ();
+
+  if (get && exists)
+    {
+      const auto &data = it->second;
+      if (data.is<db::string> ())
+	{
+	  const auto &str = data.get<db::string> ();
+	  old = bulk_string (str);
+	}
+      else if (data.is<db::integer> ())
+	{
+	  const auto &num = data.get<db::integer> ();
+	  old = bulk_string (lexical_cast<std::string> (num));
+	}
+      else
+	return wrong_type;
+    }
+
+  if (nx && exists)
+    return get ? old : null_bulk_string ();
+  if (xx && !exists)
+    return get ? old : null_bulk_string ();
+
+  db::data data{ db::string{ std::move (value) } };
+  it = storage_.insert (std::move (key), std::move (data));
+
+  if (ex)
+    storage_.expire_after (it, seconds (num));
+  else if (px)
+    storage_.expire_after (it, milliseconds (num));
+  else if (exat)
+    {
+      auto tp = db::storage::time_point{ seconds{ num } };
+      storage_.expire_at (it, tp);
+    }
+  else if (pxat)
+    {
+      auto tp = db::storage::time_point{ milliseconds{ num } };
+      storage_.expire_at (it, tp);
+    }
+  else if (!keepttl)
+    storage_.clear_expires (it);
+
+  return get ? old : simple_string ("OK");
 }
 
 resp::data
@@ -148,9 +252,9 @@ processor::exec_get ()
   if (args_.size () != 1)
     return invalid_arguments;
 
-  auto &s0 = args_[0].get ();
+  auto &key = args_[0].get ();
 
-  auto it = storage_.find (s0);
+  auto it = storage_.find (key);
   if (it == storage_.end ())
     return null_bulk_string ();
 
@@ -207,7 +311,7 @@ processor::exec_expire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return generic_expire<seconds> ();
+  return generic_expire<seconds, false> ();
 }
 
 resp::data
@@ -221,37 +325,73 @@ processor::exec_pexpire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return generic_expire<milliseconds> ();
+  return generic_expire<milliseconds, false> ();
 }
 
-template <class Duration>
+resp::data
+processor::exec_expireat ()
+{
+  // EXPIREAT key unix-time-seconds [NX | XX | GT | LT]
+
+  // RETURN:
+  // - integer: 0 if the timeout was not set; for example, the key doesn't
+  //            exist, or the operation was skipped because of the provided
+  //            arguments.
+  // - integer: 1 if the timeout was set.
+
+  return generic_expire<seconds, true> ();
+}
+
+resp::data
+processor::exec_pexpireat ()
+{
+  // PEXPIREAT key unix-time-milliseconds [NX | XX | GT | LT]
+
+  // RETURN:
+  // - integer: 0 if the timeout was not set. For example, if the key doesn't
+  //            exist, or the operation skipped because of the provided
+  //            arguments.
+  // - integer: 1 if the timeout was set.
+
+  return generic_expire<milliseconds, true> ();
+}
+
+template <class Duration, bool At>
 resp::data
 processor::generic_expire ()
 {
+  if (args_.size () != 2)
+    return invalid_arguments;
+
   auto bad = integer (0);
   auto win = integer (1);
 
-  if (args_.size () < 2)
-    return invalid_arguments;
+  auto &key = args_[0].get ();
+  auto &num = args_[1].get ();
 
-  auto &s0 = args_[0].get ();
-  auto &s1 = args_[1].get ();
-
-  auto it = storage_.find (s0);
+  auto it = storage_.find (key);
   if (it == storage_.end ())
     return bad;
 
-  std::int64_t dur;
-  if (!try_lexical_convert (s1, dur))
+  std::int64_t n;
+  if (!try_lexical_convert (num, n))
     return bad;
 
-  if (dur <= 0)
+  db::storage::time_point expires;
+  auto now = db::storage::clock_type::now ();
+
+  if (At)
+    expires = db::storage::time_point{ Duration{ n } };
+  else
+    expires = now + Duration{ n };
+
+  if (expires <= now)
     {
       storage_.erase (it);
-      return win;
+      return bad;
     }
 
-  storage_.expire_after (it, Duration (dur));
+  storage_.expire_at (it, expires);
 
   return win;
 }
@@ -289,9 +429,9 @@ processor::generic_ttl ()
   if (args_.size () != 1)
     return invalid_arguments;
 
-  auto &s0 = args_[0].get ();
+  auto &key = args_[0].get ();
 
-  auto it = storage_.find (s0);
+  auto it = storage_.find (key);
   if (it == storage_.end ())
     return integer (-2);
 
@@ -299,14 +439,14 @@ processor::generic_ttl ()
   if (!ttl)
     return integer (-1);
 
-  auto dur = duration_cast<Duration> (*ttl).count ();
-  if (dur <= 0)
+  auto num = duration_cast<Duration> (*ttl).count ();
+  if (num <= 0)
     {
       storage_.erase (it);
       return integer (-2);
     }
 
-  return integer (dur);
+  return integer (num);
 }
 
 resp::data
@@ -357,7 +497,10 @@ template <template <class T> class Op>
 resp::data
 processor::generic_calc ()
 {
-  auto oper = Op<std::int64_t>{};
+  if (args_.size () < 1)
+    return invalid_arguments;
+
+  auto &key = args_[0].get ();
   std::int64_t rhs;
 
   switch (args_.size ())
@@ -368,8 +511,8 @@ processor::generic_calc ()
 
     case 2:
       {
-	auto &s1 = args_[1].get ();
-	if (!try_lexical_convert (s1, rhs))
+	auto &str = args_[1].get ();
+	if (!try_lexical_convert (str, rhs))
 	  return wrong_type;
       }
       break;
@@ -378,14 +521,13 @@ processor::generic_calc ()
       return invalid_arguments;
     }
 
-  auto &s0 = args_[0].get ();
-
-  auto it = storage_.find (s0);
+  auto oper = Op<std::int64_t>{};
+  auto it = storage_.find (key);
   if (it == storage_.end ())
     {
       auto num = oper (0, rhs);
       db::data data{ db::integer{ num } };
-      storage_.insert (std::move (s0), std::move (data));
+      storage_.insert (std::move (key), std::move (data));
       return integer (num);
     }
 
@@ -408,8 +550,8 @@ processor::generic_calc ()
       data = db::data{ db::integer{ num } };
       return integer (num);
     }
-
-  return wrong_type;
+  else
+    return wrong_type;
 }
 
 } // namespace mini_redis

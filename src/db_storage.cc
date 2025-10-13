@@ -8,7 +8,6 @@ namespace db
 auto
 storage::insert (std::string key, data value) -> iterator
 {
-  ttl_.erase (key);
   auto pair = db_.insert_or_assign (std::move (key), std::move (value));
   return pair.first;
 }
@@ -24,9 +23,9 @@ storage::find (const std::string &key) -> iterator
   if (ttl_it == ttl_.end ())
     return it;
 
-  auto expire = ttl_it->second;
+  auto expires = ttl_it->second;
   auto now = clock_type::now ();
-  if (now < expire)
+  if (now < expires)
     return it;
 
   ttl_.erase (ttl_it);
@@ -56,8 +55,8 @@ storage::expire_after (iterator it, duration dur)
   BOOST_ASSERT (it != db_.end ());
   const auto &key = it->first;
 
-  auto expire = clock_type::now () + dur;
-  ttl_.insert_or_assign (key, expire);
+  auto expires = clock_type::now () + dur;
+  ttl_.insert_or_assign (key, expires);
 }
 
 void
@@ -79,10 +78,19 @@ storage::ttl (iterator it) -> optional<duration>
   if (ttl_it == ttl_.end ())
     return boost::none;
 
-  auto expire = ttl_it->second;
+  auto expires = ttl_it->second;
   auto now = clock_type::now ();
-  return expire - now;
+  return expires - now;
+}
+
+void
+storage::clear_expires (iterator it)
+{
+  BOOST_ASSERT (it != db_.end ());
+  const auto &key = it->first;
+
+  ttl_.erase (key);
 }
 
 } // namespace db
-} // namesapce mini_redis
+} // namespace mini_redis

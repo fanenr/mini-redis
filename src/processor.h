@@ -25,7 +25,9 @@ private:
 
   resp::data exec_expire ();
   resp::data exec_pexpire ();
-  template <class Duration>
+  resp::data exec_expireat ();
+  resp::data exec_pexpireat ();
+  template <class Duration, bool At>
   resp::data generic_expire ();
 
   resp::data exec_ttl ();
@@ -55,6 +57,8 @@ private:
 
     { "EXPIRE", &processor::exec_expire },
     { "PEXPIRE", &processor::exec_pexpire },
+    { "EXPIREAT", &processor::exec_expireat },
+    { "PEXPIREAT", &processor::exec_pexpireat },
 
     { "TTL", &processor::exec_ttl },
     { "PTTL", &processor::exec_pttl },

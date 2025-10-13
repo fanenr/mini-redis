@@ -30,6 +30,7 @@ public:
   void expire_after (iterator it, duration dur);
   void expire_at (iterator it, time_point at);
   optional<duration> ttl (iterator it);
+  void clear_expires (iterator it);
 
 private:
   db_type db_;
