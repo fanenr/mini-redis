@@ -225,7 +225,7 @@ parser::parse_array (optional<data> &out)
       return pos + 2;
     }
 
-  frame frm{ static_cast<std::size_t> (len), array{ std::vector<data>{} } };
+  frame frm{ static_cast<std::size_t> (len), {} };
   frames_.push_back (std::move (frm));
   return pos + 2;
 }
@@ -239,15 +239,13 @@ parser::push_value (data resp)
       return;
     }
 
-  BOOST_ASSERT (frames_.back ().array->has_value ());
-  frames_.back ().array ()->push_back (std::move (resp));
+  frames_.back ().array.push_back (std::move (resp));
 
   while (!frames_.empty ())
     {
       frame &frm = frames_.back ();
-      BOOST_ASSERT (frm.array->has_value ());
 
-      if (frm.array ()->size () < frm.expected)
+      if (frm.array.size () < frm.expected)
 	break;
 
       data resp{ array{ std::move (frm.array) } };
@@ -259,10 +257,7 @@ parser::push_value (data resp)
 	  break;
 	}
       else
-	{
-	  BOOST_ASSERT (frames_.back ().array->has_value ());
-	  frames_.back ().array ()->push_back (std::move (resp));
-	}
+	frames_.back ().array.push_back (std::move (resp));
     }
 }
 

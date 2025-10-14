@@ -4,8 +4,6 @@
 #include "config.h"
 #include "db_storage.h"
 
-#include <functional>
-
 namespace mini_redis
 {
 

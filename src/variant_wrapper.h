@@ -4,14 +4,16 @@
 #include "predef.h"
 #include "value_wrapper.h"
 
-#include <boost/mp11.hpp>
-
 namespace mini_redis
 {
 
 template <class... Ts>
 struct variant_wrapper : variant<Ts...>
 {
+  static_assert (
+      mp11::mp_all_of<mp11::mp_list<Ts...>, is_value_wrapper>::value,
+      "variant_wrapper is only applicable to value_wrapper");
+
   typedef variant<Ts...> variant_type;
   using variant_type::variant_type;
 

@@ -6,14 +6,18 @@
 namespace mini_redis
 {
 
-template <class T, std::size_t Tag>
+template <class T, int Tag>
 struct value_wrapper
 {
   typedef T value_type;
   value_type value;
 
-  value_wrapper (const value_type &v) : value{ v } {}
-  value_wrapper (value_type &&v) : value{ std::move (v) } {}
+  template <class... Args>
+  constexpr value_wrapper (Args &&...args) noexcept (
+      std::is_nothrow_constructible<value_type, Args...>::value)
+      : value (std::forward<Args> (args)...)
+  {
+  }
 
   value_type &
   operator* () noexcept
@@ -39,18 +43,6 @@ struct value_wrapper
     return &value;
   }
 
-  value_type &
-  operator() () noexcept
-  {
-    return value;
-  }
-
-  const value_type &
-  operator() () const noexcept
-  {
-    return value;
-  }
-
   friend bool
   operator== (const value_wrapper &lhs, const value_wrapper &rhs)
   {
@@ -69,7 +61,7 @@ struct is_value_wrapper : std::false_type
 {
 };
 
-template <class T, std::size_t Tag>
+template <class T, int Tag>
 struct is_value_wrapper<value_wrapper<T, Tag>> : std::true_type
 {
 };

@@ -6,6 +6,7 @@
 #include <boost/core/make_span.hpp>
 #include <boost/core/span.hpp>
 #include <boost/lexical_cast.hpp>
+#include <boost/mp11.hpp>
 #include <boost/optional.hpp>
 #include <boost/smart_ptr/make_unique.hpp>
 #include <boost/system.hpp>
@@ -19,6 +20,7 @@
 namespace mini_redis
 {
 
+namespace mp11 = boost::mp11;
 namespace asio = boost::asio;
 namespace chrono = std::chrono;
 

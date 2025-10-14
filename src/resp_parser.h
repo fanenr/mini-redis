@@ -15,8 +15,6 @@ namespace resp
 class parser
 {
 public:
-  explicit parser () = default;
-
   std::size_t size () const;
   bool empty () const;
   data pop ();
@@ -37,12 +35,12 @@ private:
   struct frame
   {
     std::size_t expected;
-    resp::array array;
+    std::vector<data> array;
   };
 
+  std::string buffer_;
   std::deque<data> results_;
   std::vector<frame> frames_;
-  std::string buffer_;
 }; // class parser
 
 } // namespace resp
