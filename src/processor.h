@@ -37,13 +37,13 @@ private:
   resp::data exec_incrby ();
   resp::data exec_decr ();
   resp::data exec_decrby ();
-  template <template <class T> class Op>
+  template <template <class> class Op>
   resp::data generic_calc ();
 
 private:
   config &config_;
   db::storage storage_;
-  std::vector<std::reference_wrapper<std::string>> args_;
+  std::vector<std::string> args_;
 
   typedef resp::data (processor::*exec_fn) ();
   const unordered_flat_map<string_view, exec_fn> exec_map_{

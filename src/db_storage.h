@@ -22,10 +22,9 @@ public:
   typedef db_type::iterator iterator;
 
 public:
+  optional<iterator> find (const std::string &key);
   iterator insert (std::string key, data value);
-  iterator find (const std::string &key);
   void erase (iterator it);
-  iterator end ();
 
   void expire_after (iterator it, duration dur);
   void expire_at (iterator it, time_point at);

@@ -15,21 +15,21 @@ namespace resp
 class parser
 {
 public:
-  std::size_t size () const;
-  bool empty () const;
-  data pop ();
   void append (string_view chunk);
   std::size_t parse ();
+  data pop ();
+  std::size_t size () const;
+  bool empty () const;
 
 private:
   bool try_parse ();
+  void push_value (data resp);
   std::size_t find_crlf () const;
   std::size_t parse_simple_string (optional<data> &out);
   std::size_t parse_simple_error (optional<data> &out);
   std::size_t parse_bulk_string (optional<data> &out);
   std::size_t parse_integer (optional<data> &out);
   std::size_t parse_array (optional<data> &out);
-  void push_value (data resp);
 
 private:
   struct frame

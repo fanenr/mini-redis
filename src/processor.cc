@@ -57,27 +57,23 @@ processor::execute (resp::data resp)
   if (vec.empty ())
     return simple_error ("empty array");
 
-  auto validator{ [] (const resp::data &resp) {
-    auto p = resp.get_if<resp::bulk_string> ();
-    return p && p->has_value ();
-  } };
-  if (!std::all_of (vec.begin (), vec.end (), validator))
-    return simple_error ("invalid arguments");
-
   args_.clear ();
   args_.reserve (vec.size () - 1);
   for (auto it = vec.begin () + 1; it != vec.end (); it++)
-    args_.push_back (it->get<resp::bulk_string> ().value ());
+    {
+      auto p = it->get_if<resp::bulk_string> ();
+      if (!p || !p->has_value ())
+	return simple_error ("invalid arguments");
+      args_.push_back (std::move (p->value ()));
+    }
 
   const auto &cmd = vec[0].get<resp::bulk_string> ().value ();
   auto it = exec_map_.find (cmd);
-  if (it != exec_map_.end ())
-    {
-      auto fn = it->second;
-      return (this->*fn) ();
-    }
+  if (it == exec_map_.end ())
+    return simple_error ("unknown command");
 
-  return simple_error ("unknown command");
+  auto fn = it->second;
+  return (this->*fn) ();
 }
 
 resp::data
@@ -95,10 +91,7 @@ processor::exec_ping ()
       return simple_string ("PONG");
 
     case 1:
-      {
-	auto &msg = args_[0].get ();
-	return resp::data{ resp::bulk_string{ std::move (msg) } };
-      }
+      return bulk_string (std::move (args_[0]));
 
     default:
       return invalid_arguments;
@@ -125,9 +118,6 @@ processor::exec_set ()
   if (args_.size () < 2)
     return invalid_arguments;
 
-  auto &key = args_[0].get ();
-  auto &value = args_[1].get ();
-
   bool nx = false;
   bool xx = false;
   bool get = false;
@@ -136,11 +126,11 @@ processor::exec_set ()
   bool exat = false;
   bool pxat = false;
   bool keepttl = false;
-  std::int64_t num = 0;
+  std::int64_t n = 0;
 
   for (std::size_t i = 2; i < args_.size (); i++)
     {
-      const auto &str = args_[i].get ();
+      const auto &str = args_[i];
       if (str == "NX")
 	{
 	  if (nx || xx)
@@ -183,21 +173,22 @@ processor::exec_set ()
 	  if (i >= args_.size ())
 	    return invalid_arguments;
 
-	  const auto &str = args_[i].get ();
-	  if (!try_lexical_convert (str, num) || num <= 0)
+	  const auto &num = args_[i];
+	  if (!try_lexical_convert (num, n) || n <= 0)
 	    return invalid_arguments;
 	}
       else
 	return invalid_arguments;
     }
 
-  auto it = storage_.find (key);
-  bool exists = (it != storage_.end ());
+  auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  bool exists = opt_it.has_value ();
   resp::data old = null_bulk_string ();
 
   if (get && exists)
     {
-      const auto &data = it->second;
+      const auto &data = opt_it.value ()->second;
       if (data.is<db::string> ())
 	{
 	  const auto &str = data.get<db::string> ();
@@ -217,21 +208,22 @@ processor::exec_set ()
   if (xx && !exists)
     return get ? old : null_bulk_string ();
 
+  auto &value = args_[1];
   db::data data{ db::string{ std::move (value) } };
-  it = storage_.insert (std::move (key), std::move (data));
+  auto it = storage_.insert (std::move (key), std::move (data));
 
   if (ex)
-    storage_.expire_after (it, seconds (num));
+    storage_.expire_after (it, seconds (n));
   else if (px)
-    storage_.expire_after (it, milliseconds (num));
+    storage_.expire_after (it, milliseconds (n));
   else if (exat)
     {
-      auto tp = db::storage::time_point{ seconds{ num } };
+      db::storage::time_point tp{ seconds{ n } };
       storage_.expire_at (it, tp);
     }
   else if (pxat)
     {
-      auto tp = db::storage::time_point{ milliseconds{ num } };
+      db::storage::time_point tp{ milliseconds{ n } };
       storage_.expire_at (it, tp);
     }
   else if (!keepttl)
@@ -252,13 +244,13 @@ processor::exec_get ()
   if (args_.size () != 1)
     return invalid_arguments;
 
-  auto &key = args_[0].get ();
+  const auto &key = args_[0];
 
-  auto it = storage_.find (key);
-  if (it == storage_.end ())
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
     return null_bulk_string ();
 
-  auto &data = it->second;
+  const auto &data = opt_it.value ()->second;
   if (data.is<db::string> ())
     {
       const auto &str = data.get<db::string> ();
@@ -285,19 +277,18 @@ processor::exec_del ()
   if (args_.size () < 1)
     return invalid_arguments;
 
-  std::int64_t num = 0;
-  for (auto ref : args_)
+  std::int64_t n = 0;
+  for (const auto &key : args_)
     {
-      const auto &key = ref.get ();
-      auto it = storage_.find (key);
-      if (it != storage_.end ())
+      auto opt_it = storage_.find (key);
+      if (opt_it.has_value ())
 	{
-	  storage_.erase (it);
-	  num++;
+	  storage_.erase (opt_it.value ());
+	  n++;
 	}
     }
 
-  return integer (num);
+  return integer (n);
 }
 
 resp::data
@@ -363,20 +354,17 @@ processor::generic_expire ()
   if (args_.size () != 2)
     return invalid_arguments;
 
-  auto bad = integer (0);
-  auto win = integer (1);
-
-  auto &key = args_[0].get ();
-  auto &num = args_[1].get ();
-
-  auto it = storage_.find (key);
-  if (it == storage_.end ())
-    return bad;
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return integer (0);
 
   std::int64_t n;
+  const auto &num = args_[1];
   if (!try_lexical_convert (num, n))
-    return bad;
+    return integer (0);
 
+  auto it = opt_it.value ();
   db::storage::time_point expires;
   auto now = db::storage::clock_type::now ();
 
@@ -388,12 +376,12 @@ processor::generic_expire ()
   if (expires <= now)
     {
       storage_.erase (it);
-      return bad;
+      return integer (0);
     }
+  else
+    storage_.expire_at (it, expires);
 
-  storage_.expire_at (it, expires);
-
-  return win;
+  return integer (1);
 }
 
 resp::data
@@ -429,24 +417,25 @@ processor::generic_ttl ()
   if (args_.size () != 1)
     return invalid_arguments;
 
-  auto &key = args_[0].get ();
-
-  auto it = storage_.find (key);
-  if (it == storage_.end ())
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
     return integer (-2);
 
+  auto it = opt_it.value ();
+
   auto ttl = storage_.ttl (it);
-  if (!ttl)
+  if (!ttl.has_value ())
     return integer (-1);
 
-  auto num = duration_cast<Duration> (*ttl).count ();
-  if (num <= 0)
+  auto n = duration_cast<Duration> (ttl.value ()).count ();
+  if (n <= 0)
     {
       storage_.erase (it);
       return integer (-2);
     }
 
-  return integer (num);
+  return integer (n);
 }
 
 resp::data
@@ -493,14 +482,14 @@ processor::exec_decrby ()
   return generic_calc<std::minus> ();
 }
 
-template <template <class T> class Op>
+template <template <class> class Op>
 resp::data
 processor::generic_calc ()
 {
   if (args_.size () < 1)
     return invalid_arguments;
 
-  auto &key = args_[0].get ();
+  auto &key = args_[0];
   std::int64_t rhs;
 
   switch (args_.size ())
@@ -511,8 +500,8 @@ processor::generic_calc ()
 
     case 2:
       {
-	auto &str = args_[1].get ();
-	if (!try_lexical_convert (str, rhs))
+	const auto &num = args_[1];
+	if (!try_lexical_convert (num, rhs))
 	  return wrong_type;
       }
       break;
@@ -521,34 +510,35 @@ processor::generic_calc ()
       return invalid_arguments;
     }
 
-  auto oper = Op<std::int64_t>{};
-  auto it = storage_.find (key);
-  if (it == storage_.end ())
+  Op<std::int64_t> oper{};
+
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
     {
-      auto num = oper (0, rhs);
-      db::data data{ db::integer{ num } };
+      auto n = oper (0, rhs);
+      db::data data{ db::integer{ n } };
       storage_.insert (std::move (key), std::move (data));
-      return integer (num);
+      return integer (n);
     }
 
+  auto it = opt_it.value ();
   auto &data = it->second;
   if (data.is<db::integer> ())
     {
-      auto &num = data.get<db::integer> ();
-      num = oper (num, rhs);
-      return integer (num);
+      auto &n = data.get<db::integer> ();
+      n = oper (n, rhs);
+      return integer (n);
     }
   else if (data.is<db::string> ())
     {
-      const auto &str = data.get<db::string> ();
-
-      std::int64_t num;
-      if (!try_lexical_convert (str, num))
+      std::int64_t n;
+      const auto &num = data.get<db::string> ();
+      if (!try_lexical_convert (num, n))
 	return wrong_type;
 
-      num = oper (num, rhs);
-      data = db::data{ db::integer{ num } };
-      return integer (num);
+      n = oper (n, rhs);
+      data = db::data{ db::integer{ n } };
+      return integer (n);
     }
   else
     return wrong_type;

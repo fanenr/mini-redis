@@ -6,18 +6,11 @@ namespace db
 {
 
 auto
-storage::insert (std::string key, data value) -> iterator
-{
-  auto pair = db_.insert_or_assign (std::move (key), std::move (value));
-  return pair.first;
-}
-
-auto
-storage::find (const std::string &key) -> iterator
+storage::find (const std::string &key) -> optional<iterator>
 {
   auto it = db_.find (key);
   if (it == db_.end ())
-    return it;
+    return boost::none;
 
   auto ttl_it = ttl_.find (key);
   if (ttl_it == ttl_.end ())
@@ -30,7 +23,15 @@ storage::find (const std::string &key) -> iterator
 
   ttl_.erase (ttl_it);
   db_.erase (it);
-  return db_.end ();
+
+  return boost::none;
+}
+
+auto
+storage::insert (std::string key, data value) -> iterator
+{
+  auto pair = db_.insert_or_assign (std::move (key), std::move (value));
+  return pair.first;
 }
 
 void
@@ -43,20 +44,11 @@ storage::erase (iterator it)
   db_.erase (it);
 }
 
-auto
-storage::end () -> iterator
-{
-  return db_.end ();
-}
-
 void
 storage::expire_after (iterator it, duration dur)
 {
-  BOOST_ASSERT (it != db_.end ());
-  const auto &key = it->first;
-
   auto expires = clock_type::now () + dur;
-  ttl_.insert_or_assign (key, expires);
+  expire_at (it, expires);
 }
 
 void

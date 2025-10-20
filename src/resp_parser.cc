@@ -5,30 +5,6 @@ namespace mini_redis
 namespace resp
 {
 
-std::size_t
-parser::size () const
-{
-  return results_.size ();
-}
-
-bool
-parser::empty () const
-{
-  return results_.empty ();
-}
-
-data
-parser::pop ()
-{
-  if (!empty ())
-    {
-      auto resp = std::move (results_.front ());
-      results_.pop_front ();
-      return resp;
-    }
-  BOOST_THROW_EXCEPTION (std::logic_error ("results is empty"));
-}
-
 void
 parser::append (string_view chunk)
 {
@@ -45,6 +21,26 @@ parser::parse ()
   return results_.size () - before;
 }
 
+data
+parser::pop ()
+{
+  auto resp = std::move (results_.front ());
+  results_.pop_front ();
+  return resp;
+}
+
+std::size_t
+parser::size () const
+{
+  return results_.size ();
+}
+
+bool
+parser::empty () const
+{
+  return results_.empty ();
+}
+
 bool
 parser::try_parse ()
 {
@@ -56,18 +52,23 @@ parser::try_parse ()
     case simple_string_first:
       consumed = parse_simple_string (resp);
       break;
+
     case simple_error_first:
       consumed = parse_simple_error (resp);
       break;
+
     case bulk_string_first:
       consumed = parse_bulk_string (resp);
       break;
+
     case integer_first:
       consumed = parse_integer (resp);
       break;
+
     case array_first:
       consumed = parse_array (resp);
       break;
+
     default:
       // TODO: response error
       // bad resp: unknown prefix
@@ -83,6 +84,34 @@ parser::try_parse ()
   return true;
 }
 
+void
+parser::push_value (data resp)
+{
+  if (frames_.empty ())
+    return results_.push_back (std::move (resp));
+
+  frames_.back ().array.push_back (std::move (resp));
+
+  while (!frames_.empty ())
+    {
+      frame &frm = frames_.back ();
+
+      if (frm.array.size () < frm.expected)
+	break;
+
+      data resp{ array{ std::move (frm.array) } };
+      frames_.pop_back ();
+
+      if (frames_.empty ())
+	{
+	  results_.push_back (std::move (resp));
+	  break;
+	}
+      else
+	frames_.back ().array.push_back (std::move (resp));
+    }
+}
+
 std::size_t
 parser::find_crlf () const
 {
@@ -96,7 +125,7 @@ parser::parse_simple_string (optional<data> &out)
   if (pos == std::string::npos)
     return 0;
 
-  auto str = std::string{ buffer_.data () + 1, pos - 1 };
+  std::string str{ buffer_.data () + 1, pos - 1 };
   out = data{ simple_string{ std::move (str) } };
   return pos + 2;
 }
@@ -108,7 +137,7 @@ parser::parse_simple_error (optional<data> &out)
   if (pos == std::string::npos)
     return 0;
 
-  auto str = std::string{ buffer_.data () + 1, pos - 1 };
+  std::string str{ buffer_.data () + 1, pos - 1 };
   out = data{ simple_error{ std::move (str) } };
   return pos + 2;
 }
@@ -157,8 +186,8 @@ parser::parse_bulk_string (optional<data> &out)
       return pos2;
     }
 
-  auto str = std::string{ buffer_.data () + pos1 + 2,
-			  static_cast<std::size_t> (len) };
+  std::string str{ buffer_.data () + pos1 + 2,
+		   static_cast<std::size_t> (len) };
   out = data{ bulk_string{ std::move (str) } };
   return pos2 + 2;
 }
@@ -228,37 +257,6 @@ parser::parse_array (optional<data> &out)
   frame frm{ static_cast<std::size_t> (len), {} };
   frames_.push_back (std::move (frm));
   return pos + 2;
-}
-
-void
-parser::push_value (data resp)
-{
-  if (frames_.empty ())
-    {
-      results_.push_back (std::move (resp));
-      return;
-    }
-
-  frames_.back ().array.push_back (std::move (resp));
-
-  while (!frames_.empty ())
-    {
-      frame &frm = frames_.back ();
-
-      if (frm.array.size () < frm.expected)
-	break;
-
-      data resp{ array{ std::move (frm.array) } };
-      frames_.pop_back ();
-
-      if (frames_.empty ())
-	{
-	  results_.push_back (std::move (resp));
-	  break;
-	}
-      else
-	frames_.back ().array.push_back (std::move (resp));
-    }
 }
 
 } // namespace resp

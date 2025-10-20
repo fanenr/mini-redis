@@ -59,11 +59,11 @@ struct variant_wrapper : variant<Ts...>
   static constexpr std::size_t
   index_of ()
   {
-    using namespace boost::mp11;
-    typedef mp_list<Ts...> L;
-    static_assert (mp_find<L, U>::value < mp_size<L>::value,
-		   "U is not in the type list");
-    return mp_find<L, U>::value;
+    using L = mp11::mp_list<Ts...>;
+    using Size = mp11::mp_size<L>;
+    using Index = mp11::mp_find<L, U>;
+    static_assert (Index::value < Size::value, "U is not in the type list");
+    return Index::value;
   };
 }; // class variant_wrapper
 
