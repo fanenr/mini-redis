@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.14)
-project(mini-redis CXX)
+project(mini-redis)
 
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -17,3 +17,12 @@ target_compile_definitions(server
   PRIVATE
     BOOST_ASIO_SEPARATE_COMPILATION=1
 )
+
+# option(ENABLE_STATIC_LINK OFF)
+# if(ENABLE_STATIC_LINK)
+#   target_link_options(server
+#     PRIVATE
+#       -static-libgcc
+#       -static-libstdc++
+#   )
+# endif()

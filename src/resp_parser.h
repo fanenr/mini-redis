@@ -15,11 +15,11 @@ namespace resp
 class parser
 {
 public:
-  void append (string_view chunk);
+  void append_chunk (string_view chk);
   std::size_t parse ();
   data pop ();
-  std::size_t size () const;
-  bool empty () const;
+  std::size_t available_data () const;
+  bool has_data () const;
 
 private:
   bool try_parse ();

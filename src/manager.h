@@ -12,8 +12,8 @@ namespace mini_redis
 class manager
 {
 public:
-  manager (asio::any_io_executor ex, config &cfg)
-      : strand_ (ex), processor_ (cfg)
+  explicit manager (asio::any_io_executor ex, config &cfg)
+      : strand_{ ex }, processor_{ cfg }
   {
   }
 

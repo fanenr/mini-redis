@@ -1,4 +1,5 @@
 #include "processor.h"
+#include <boost/algorithm/string.hpp>
 
 namespace mini_redis
 {
@@ -6,46 +7,68 @@ namespace mini_redis
 static inline resp::data
 simple_string (std::string msg)
 {
-  return resp::data{ resp::simple_string{ std::move (msg) } };
+  return { resp::simple_string{ std::move (msg) } };
 }
 
 static inline resp::data
 simple_error (std::string msg)
 {
-  return resp::data{ resp::simple_error{ std::move (msg) } };
+  return { resp::simple_error{ std::move (msg) } };
 }
 
 static inline resp::data
 bulk_string (std::string str)
 {
-  return resp::data{ resp::bulk_string{ std::move (str) } };
+  return { resp::bulk_string{ std::move (str) } };
 }
 
 static inline resp::data
 null_bulk_string ()
 {
-  return resp::data{ resp::bulk_string{ boost::none } };
+  return { resp::bulk_string{ boost::none } };
 }
 
 static inline resp::data
 integer (std::int64_t num)
 {
-  return resp::data{ resp::integer{ num } };
+  return { resp::integer{ num } };
 }
 
-const auto invalid_arguments = simple_error ("invalid arguments");
-const auto wrong_type = simple_error ("wrong type");
+static const auto invalid_arguments = simple_error ("invalid arguments");
+static const auto wrong_type = simple_error ("wrong type");
 
 } // namespace mini_redis
 
 namespace mini_redis
 {
 
-processor::processor (config &cfg) : config_ (cfg) {}
+processor::processor (config &cfg) : config_{ cfg } {}
 
 resp::data
 processor::execute (resp::data resp)
 {
+  typedef resp::data (processor::*exec_fn) ();
+  static const unordered_flat_map<string_view, exec_fn> exec_map{
+    { "ping", &processor::exec_ping },
+
+    { "set", &processor::exec_set },
+    { "get", &processor::exec_get },
+    { "del", &processor::exec_del },
+
+    { "expire", &processor::exec_expire },
+    { "pexpire", &processor::exec_pexpire },
+    { "expireat", &processor::exec_expireat },
+    { "pexpireat", &processor::exec_pexpireat },
+
+    { "ttl", &processor::exec_ttl },
+    { "pttl", &processor::exec_pttl },
+
+    { "incr", &processor::exec_incr },
+    { "incrby", &processor::exec_incrby },
+    { "decr", &processor::exec_decr },
+    { "decrby", &processor::exec_decrby },
+  };
+
   if (!resp.is<resp::array> ())
     return simple_error ("not array");
 
@@ -57,19 +80,28 @@ processor::execute (resp::data resp)
   if (vec.empty ())
     return simple_error ("empty array");
 
+  bool all_str = true;
+  for (const auto &v : vec)
+    {
+      auto p = v.get_if<resp::bulk_string> ();
+      if (p == nullptr || !p->has_value ())
+	{
+	  all_str = false;
+	  break;
+	}
+    }
+  if (!all_str)
+    return simple_error ("invalid array");
+
   args_.clear ();
   args_.reserve (vec.size () - 1);
   for (auto it = vec.begin () + 1; it != vec.end (); it++)
-    {
-      auto p = it->get_if<resp::bulk_string> ();
-      if (!p || !p->has_value ())
-	return simple_error ("invalid arguments");
-      args_.push_back (std::move (p->value ()));
-    }
+    args_.push_back (std::move (it->get<resp::bulk_string> ().value ()));
 
-  const auto &cmd = vec[0].get<resp::bulk_string> ().value ();
-  auto it = exec_map_.find (cmd);
-  if (it == exec_map_.end ())
+  auto &cmd = vec[0].get<resp::bulk_string> ().value ();
+  boost::to_lower (cmd);
+  auto it = exec_map.find (cmd);
+  if (it == exec_map.end ())
     return simple_error ("unknown command");
 
   auto fn = it->second;
@@ -130,47 +162,47 @@ processor::exec_set ()
 
   for (std::size_t i = 2; i < args_.size (); i++)
     {
-      const auto &str = args_[i];
-      if (str == "NX")
+      auto &str = args_[i];
+      boost::to_lower (str);
+      if (str == "nx")
 	{
 	  if (nx || xx)
 	    return invalid_arguments;
 	  nx = true;
 	}
-      else if (str == "XX")
+      else if (str == "xx")
 	{
 	  if (nx || xx)
 	    return invalid_arguments;
 	  xx = true;
 	}
-      else if (str == "GET")
+      else if (str == "get")
 	{
 	  if (get)
 	    return invalid_arguments;
 	  get = true;
 	}
-      else if (str == "KEEPTTL")
+      else if (str == "keepttl")
 	{
 	  if (ex || px || exat || pxat || keepttl)
 	    return invalid_arguments;
 	  keepttl = true;
 	}
-      else if (str == "EX" || str == "PX" || str == "EXAT" || str == "PXAT")
+      else if (str == "ex" || str == "px" || str == "exat" || str == "pxat")
 	{
 	  if (ex || px || exat || pxat || keepttl)
 	    return invalid_arguments;
 
-	  if (str == "EX")
+	  if (str == "ex")
 	    ex = true;
-	  else if (str == "PX")
+	  else if (str == "px")
 	    px = true;
-	  else if (str == "EXAT")
+	  else if (str == "exat")
 	    exat = true;
-	  else if (str == "PXAT")
+	  else if (str == "pxat")
 	    pxat = true;
 
-	  i++;
-	  if (i >= args_.size ())
+	  if (++i >= args_.size ())
 	    return invalid_arguments;
 
 	  const auto &num = args_[i];
@@ -302,7 +334,7 @@ processor::exec_expire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return generic_expire<seconds, false> ();
+  return expire_impl<seconds, false> ();
 }
 
 resp::data
@@ -316,7 +348,7 @@ processor::exec_pexpire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return generic_expire<milliseconds, false> ();
+  return expire_impl<milliseconds, false> ();
 }
 
 resp::data
@@ -330,7 +362,7 @@ processor::exec_expireat ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return generic_expire<seconds, true> ();
+  return expire_impl<seconds, true> ();
 }
 
 resp::data
@@ -344,12 +376,12 @@ processor::exec_pexpireat ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return generic_expire<milliseconds, true> ();
+  return expire_impl<milliseconds, true> ();
 }
 
 template <class Duration, bool At>
 resp::data
-processor::generic_expire ()
+processor::expire_impl ()
 {
   if (args_.size () != 2)
     return invalid_arguments;
@@ -394,7 +426,7 @@ processor::exec_ttl ()
   // - integer: -1 if the key exists but has no associated expiration.
   // - integer: -2 if the key does not exist.
 
-  return generic_ttl<seconds> ();
+  return ttl_impl<seconds> ();
 }
 
 resp::data
@@ -407,12 +439,12 @@ processor::exec_pttl ()
   // - integer: -1 if the key exists but has no associated expiration.
   // - integer: -2 if the key does not exist.
 
-  return generic_ttl<milliseconds> ();
+  return ttl_impl<milliseconds> ();
 }
 
 template <class Duration>
 resp::data
-processor::generic_ttl ()
+processor::ttl_impl ()
 {
   if (args_.size () != 1)
     return invalid_arguments;
@@ -446,7 +478,7 @@ processor::exec_incr ()
   // RETURN:
   // - integer: the value of the key after the increment.
 
-  return generic_calc<std::plus> ();
+  return calc_impl<std::plus> ();
 }
 
 resp::data
@@ -457,7 +489,7 @@ processor::exec_incrby ()
   // RETURN:
   // - integer: the value of the key after the increment.
 
-  return generic_calc<std::plus> ();
+  return calc_impl<std::plus> ();
 }
 
 resp::data
@@ -468,7 +500,7 @@ processor::exec_decr ()
   // RETURN:
   // - integer: the value of the key after decrementing it.
 
-  return generic_calc<std::minus> ();
+  return calc_impl<std::minus> ();
 }
 
 resp::data
@@ -479,12 +511,12 @@ processor::exec_decrby ()
   // RETURN:
   // - integer: the value of the key after decrementing it.
 
-  return generic_calc<std::minus> ();
+  return calc_impl<std::minus> ();
 }
 
 template <template <class> class Op>
 resp::data
-processor::generic_calc ()
+processor::calc_impl ()
 {
   if (args_.size () < 1)
     return invalid_arguments;

@@ -6,9 +6,9 @@ namespace resp
 {
 
 void
-parser::append (string_view chunk)
+parser::append_chunk (string_view chk)
 {
-  buffer_.append (chunk.data (), chunk.size ());
+  buffer_.append (chk.data (), chk.size ());
 }
 
 std::size_t
@@ -30,15 +30,15 @@ parser::pop ()
 }
 
 std::size_t
-parser::size () const
+parser::available_data () const
 {
   return results_.size ();
 }
 
 bool
-parser::empty () const
+parser::has_data () const
 {
-  return results_.empty ();
+  return !results_.empty ();
 }
 
 bool
@@ -75,12 +75,13 @@ parser::try_parse ()
       consumed = 1;
     }
 
-  if (!consumed)
+  if (consumed == 0)
     return false;
-  buffer_.erase (0, consumed);
+  else
+    buffer_.erase (0, consumed);
 
-  if (resp)
-    push_value (std::move (*resp));
+  if (resp.has_value ())
+    push_value (std::move (resp.value ()));
   return true;
 }
 
@@ -88,7 +89,10 @@ void
 parser::push_value (data resp)
 {
   if (frames_.empty ())
-    return results_.push_back (std::move (resp));
+    {
+      results_.push_back (std::move (resp));
+      return;
+    }
 
   frames_.back ().array.push_back (std::move (resp));
 
@@ -103,10 +107,7 @@ parser::push_value (data resp)
       frames_.pop_back ();
 
       if (frames_.empty ())
-	{
-	  results_.push_back (std::move (resp));
-	  break;
-	}
+	results_.push_back (std::move (resp));
       else
 	frames_.back ().array.push_back (std::move (resp));
     }

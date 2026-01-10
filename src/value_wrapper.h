@@ -15,7 +15,7 @@ struct value_wrapper
   template <class... Args>
   constexpr value_wrapper (Args &&...args) noexcept (
       std::is_nothrow_constructible<value_type, Args...>::value)
-      : value (std::forward<Args> (args)...)
+      : value{ std::forward<Args> (args)... }
   {
   }
 
