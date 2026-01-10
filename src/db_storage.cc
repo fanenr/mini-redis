@@ -23,7 +23,6 @@ storage::find (const std::string &key) -> optional<iterator>
 
   ttl_.erase (ttl_it);
   db_.erase (it);
-
   return boost::none;
 }
 
@@ -38,8 +37,8 @@ void
 storage::erase (iterator it)
 {
   BOOST_ASSERT (it != db_.end ());
-  const auto &key = it->first;
 
+  const auto &key = it->first;
   ttl_.erase (key);
   db_.erase (it);
 }
@@ -55,8 +54,8 @@ void
 storage::expire_at (iterator it, time_point at)
 {
   BOOST_ASSERT (it != db_.end ());
-  const auto &key = it->first;
 
+  const auto &key = it->first;
   ttl_.insert_or_assign (key, at);
 }
 
@@ -64,8 +63,8 @@ auto
 storage::ttl (iterator it) -> optional<duration>
 {
   BOOST_ASSERT (it != db_.end ());
-  const auto &key = it->first;
 
+  const auto &key = it->first;
   auto ttl_it = ttl_.find (key);
   if (ttl_it == ttl_.end ())
     return boost::none;
@@ -79,8 +78,8 @@ void
 storage::clear_expires (iterator it)
 {
   BOOST_ASSERT (it != db_.end ());
-  const auto &key = it->first;
 
+  const auto &key = it->first;
   ttl_.erase (key);
 }
 

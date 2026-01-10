@@ -1,5 +1,7 @@
 #include "resp_data.h"
 
+static const char *CRLF = "\r\n";
+
 namespace mini_redis
 {
 namespace resp
@@ -13,14 +15,14 @@ encode_impl (std::ostringstream &oss, const data &resp)
     case data::index_of<simple_string> ():
       {
 	const auto &ss = resp.get<simple_string> ();
-	oss << simple_string_first << ss << "\r\n";
+	oss << simple_string_first << ss << CRLF;
       }
       break;
 
     case data::index_of<simple_error> ():
       {
 	const auto &se = resp.get<simple_error> ();
-	oss << simple_error_first << se << "\r\n";
+	oss << simple_error_first << se << CRLF;
       }
       break;
 
@@ -28,17 +30,17 @@ encode_impl (std::ostringstream &oss, const data &resp)
       {
 	const auto &bs = resp.get<bulk_string> ();
 	oss << bulk_string_first;
-	if (bs)
-	  oss << bs->size () << "\r\n" << *bs << "\r\n";
+	if (bs.has_value ())
+	  oss << bs->size () << CRLF << bs.value () << CRLF;
 	else
-	  oss << -1 << "\r\n";
+	  oss << -1 << CRLF;
       }
       break;
 
     case data::index_of<integer> ():
       {
 	const auto &num = resp.get<integer> ();
-	oss << integer_first << num << "\r\n";
+	oss << integer_first << num << CRLF;
       }
       break;
 
@@ -46,15 +48,15 @@ encode_impl (std::ostringstream &oss, const data &resp)
       {
 	const auto &arr = resp.get<array> ();
 	oss << array_first;
-	if (arr)
+	if (arr.has_value ())
 	  {
 	    const auto &vec = arr.value ();
-	    oss << vec.size () << "\r\n";
-	    for (const auto &i : vec)
-	      encode_impl (oss, i);
+	    oss << vec.size () << CRLF;
+	    for (const auto &v : vec)
+	      encode_impl (oss, v);
 	  }
 	else
-	  oss << -1 << "\r\n";
+	  oss << -1 << CRLF;
       }
       break;
 
@@ -66,7 +68,7 @@ encode_impl (std::ostringstream &oss, const data &resp)
 std::string
 data::encode () const
 {
-  std::ostringstream oss{};
+  std::ostringstream oss;
   encode_impl (oss, *this);
   return oss.str ();
 }

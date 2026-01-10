@@ -39,8 +39,7 @@ get_basic_category ()
 boost::system::error_code
 make_error_code (basic_errors e)
 {
-  return boost::system::error_code (static_cast<int> (e),
-				    get_basic_category ());
+  return { static_cast<int> (e), get_basic_category () };
 }
 
 } // namespace error

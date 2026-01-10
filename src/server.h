@@ -12,7 +12,12 @@ class server
 {
 public:
   server (int port = 6379, config cfg = {});
+
   ~server ();
+  server (const server &) = delete;
+  server &operator= (const server &) = delete;
+  server (server &&) noexcept = delete;
+  server &operator= (server &&) noexcept = delete;
 
   void start ();
   void stop ();
