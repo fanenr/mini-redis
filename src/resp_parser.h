@@ -1,11 +1,9 @@
 #ifndef RESP_PARSER_H
 #define RESP_PARSER_H
 
-#include "predef.h"
-#include "resp_data.h"
+#include "pch.h"
 
-#include <deque>
-#include <vector>
+#include "resp_data.h"
 
 namespace mini_redis
 {

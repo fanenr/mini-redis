@@ -1,5 +1,4 @@
 #include "processor.h"
-#include <boost/algorithm/string.hpp>
 
 namespace mini_redis
 {

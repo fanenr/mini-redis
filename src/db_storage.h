@@ -1,8 +1,9 @@
 #ifndef DB_STORAGE_H
 #define DB_STORAGE_H
 
+#include "pch.h"
+
 #include "db_data.h"
-#include "predef.h"
 
 namespace mini_redis
 {
@@ -37,6 +38,6 @@ private:
 }; // class storage
 
 } // namespace db
-} // namesapce mini_redis
+} // namespace mini_redis
 
 #endif // DB_STORAGE_H

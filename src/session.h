@@ -1,13 +1,11 @@
 #ifndef SESSION_H
 #define SESSION_H
 
+#include "pch.h"
+
 #include "manager.h"
-#include "predef.h"
 #include "resp_data.h"
 #include "resp_parser.h"
-
-#include <array>
-#include <memory>
 
 namespace mini_redis
 {

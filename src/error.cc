@@ -1,7 +1,5 @@
 #include "error.h"
 
-#include <string>
-
 namespace mini_redis
 {
 namespace error

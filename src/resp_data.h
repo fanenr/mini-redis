@@ -1,14 +1,10 @@
 #ifndef RESP_DATA_H
 #define RESP_DATA_H
 
-#include "predef.h"
+#include "pch.h"
+
 #include "value_wrapper.h"
 #include "variant_wrapper.h"
-
-#include <cstdint>
-#include <sstream>
-#include <string>
-#include <vector>
 
 namespace mini_redis
 {

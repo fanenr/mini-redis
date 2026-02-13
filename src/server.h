@@ -1,9 +1,10 @@
 #ifndef SERVER_H
 #define SERVER_H
 
+#include "pch.h"
+
 #include "config.h"
 #include "manager.h"
-#include "predef.h"
 
 namespace mini_redis
 {

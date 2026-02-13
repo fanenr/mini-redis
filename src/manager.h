@@ -1,8 +1,9 @@
 #ifndef MANAGER_H
 #define MANAGER_H
 
+#include "pch.h"
+
 #include "config.h"
-#include "predef.h"
 #include "processor.h"
 #include "resp_data.h"
 

@@ -1,6 +1,7 @@
-#ifndef PREDEF_H
-#define PREDEF_H
+#ifndef PCH_H
+#define PCH_H
 
+#include <boost/algorithm/string.hpp>
 #include <boost/asio.hpp>
 #include <boost/assert.hpp>
 #include <boost/core/make_span.hpp>
@@ -15,7 +16,16 @@
 #include <boost/unordered/unordered_flat_set.hpp>
 #include <boost/utility/string_view.hpp>
 #include <boost/variant2.hpp>
+
+#include <array>
 #include <chrono>
+#include <cstdint>
+#include <deque>
+#include <memory>
+#include <sstream>
+#include <string>
+#include <system_error>
+#include <vector>
 
 namespace mini_redis
 {
@@ -48,4 +58,4 @@ using chrono::duration_cast;
 
 } // namespace mini_redis
 
-#endif // PREDEF_H
+#endif // PCH_H
