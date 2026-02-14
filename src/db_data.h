@@ -25,7 +25,7 @@ struct data : data_base
 {
   typedef data_base base_type;
   using base_type::base_type;
-}; // class data
+}; // struct data
 
 } // namespace db
 } // namespace mini_redis

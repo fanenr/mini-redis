@@ -4,8 +4,8 @@
 namespace mini_redis
 {
 
-server::server (int port, config cfg)
-    : acceptor_{ ioc_, tcp::endpoint (tcp::v4 (), port) },
+server::server (std::uint16_t port, config cfg)
+    : acceptor_{ ioc_, tcp::endpoint{ tcp::v4 (), port } },
       signals_{ ioc_, SIGINT, SIGTERM },
       manager_{ ioc_.get_executor (), std::move (cfg) }
 {

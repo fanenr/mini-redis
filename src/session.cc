@@ -130,7 +130,9 @@ session::start_send ()
 void
 session::close ()
 {
-  socket_.close ();
+  error_code ec;
+  auto r = socket_.close (ec);
+  (void) r;
 }
 
 } // namespace mini_redis

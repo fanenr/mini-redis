@@ -52,6 +52,12 @@ err_bad_integer ()
 }
 
 static inline resp::data
+err_overflow ()
+{
+  return simple_error ("ERR increment or decrement would overflow");
+}
+
+static inline resp::data
 err_wrong_type ()
 {
   return simple_error (
@@ -74,6 +80,46 @@ err_unknown_command (std::string cmd)
   msg.append (cmd.data (), cmd.size ());
   msg += "'";
   return simple_error (std::move (msg));
+}
+
+optional<std::int64_t>
+checked_add (std::int64_t lhs, std::int64_t rhs)
+{
+  const auto min = std::numeric_limits<std::int64_t>::min ();
+  const auto max = std::numeric_limits<std::int64_t>::max ();
+
+  if (rhs > 0 && lhs > max - rhs)
+    return boost::none;
+  if (rhs < 0 && lhs < min - rhs)
+    return boost::none;
+
+  return lhs + rhs;
+}
+
+optional<std::int64_t>
+checked_sub (std::int64_t lhs, std::int64_t rhs)
+{
+  const auto min = std::numeric_limits<std::int64_t>::min ();
+  const auto max = std::numeric_limits<std::int64_t>::max ();
+
+  if (rhs > 0 && lhs < min + rhs)
+    return boost::none;
+  if (rhs < 0 && lhs > max + rhs)
+    return boost::none;
+
+  return lhs - rhs;
+}
+
+optional<std::int64_t>
+checked_calc (std::int64_t lhs, std::int64_t rhs, std::plus<std::int64_t>)
+{
+  return checked_add (lhs, rhs);
+}
+
+optional<std::int64_t>
+checked_calc (std::int64_t lhs, std::int64_t rhs, std::minus<std::int64_t>)
+{
+  return checked_sub (lhs, rhs);
 }
 
 } // namespace mini_redis
@@ -285,9 +331,9 @@ processor::exec_set ()
   auto it = storage_.insert (std::move (key), std::move (data));
 
   if (ex)
-    storage_.expire_after (it, seconds (n));
+    storage_.expire_after (it, seconds{ n });
   else if (px)
-    storage_.expire_after (it, milliseconds (n));
+    storage_.expire_after (it, milliseconds{ n });
   else if (exat)
     {
       db::storage::time_point tp{ seconds{ n } };
@@ -423,8 +469,34 @@ template <class Duration, bool At>
 resp::data
 processor::expire_impl (string_view cmd)
 {
-  if (args_.size () != 2)
+  if (args_.size () != 2 && args_.size () != 3)
     return err_wrong_num_args (cmd);
+
+  enum
+  {
+    cond_none = 0,
+    cond_nx,
+    cond_xx,
+    cond_gt,
+    cond_lt,
+  };
+
+  auto cond = cond_none;
+  if (args_.size () == 3)
+    {
+      auto opt = args_[2];
+      boost::to_lower (opt);
+      if (opt == "nx")
+	cond = cond_nx;
+      else if (opt == "xx")
+	cond = cond_xx;
+      else if (opt == "gt")
+	cond = cond_gt;
+      else if (opt == "lt")
+	cond = cond_lt;
+      else
+	return err_syntax ();
+    }
 
   std::int64_t n;
   const auto &num = args_[1];
@@ -439,16 +511,53 @@ processor::expire_impl (string_view cmd)
   auto it = opt_it.value ();
   db::storage::time_point expires;
   auto now = db::storage::clock_type::now ();
+  auto ttl = storage_.ttl (it);
+  auto zero = db::storage::duration::zero ();
+  if (ttl.has_value () && ttl.value () <= zero)
+    {
+      storage_.erase (it);
+      return integer (0);
+    }
 
   if (At)
     expires = db::storage::time_point{ Duration{ n } };
   else
     expires = now + Duration{ n };
 
-  if (expires <= now)
+  auto new_ttl = expires - now;
+
+  bool can_set = true;
+  switch (cond)
+    {
+    case cond_none:
+      break;
+
+    case cond_nx:
+      can_set = !ttl.has_value ();
+      break;
+
+    case cond_xx:
+      can_set = ttl.has_value ();
+      break;
+
+    case cond_gt:
+      can_set = ttl.has_value () && new_ttl > ttl.value ();
+      break;
+
+    case cond_lt:
+      can_set = !ttl.has_value () || new_ttl < ttl.value ();
+      break;
+
+    default:
+      BOOST_THROW_EXCEPTION (std::logic_error ("bad expire_cond"));
+    }
+  if (!can_set)
+    return integer (0);
+
+  if (new_ttl <= zero)
     {
       storage_.erase (it);
-      return integer (0);
+      return integer (1);
     }
   else
     storage_.expire_at (it, expires);
@@ -500,13 +609,14 @@ processor::ttl_impl (string_view cmd)
   if (!ttl.has_value ())
     return integer (-1);
 
-  auto n = duration_cast<Duration> (ttl.value ()).count ();
-  if (n <= 0)
+  auto ttl_raw = ttl.value ();
+  if (ttl_raw <= db::storage::duration::zero ())
     {
       storage_.erase (it);
       return integer (-2);
     }
 
+  auto n = duration_cast<Duration> (ttl_raw).count ();
   return integer (n);
 }
 
@@ -570,12 +680,17 @@ processor::calc_impl (string_view cmd, bool with_rhs)
 	return err_bad_integer ();
     }
 
-  Op<std::int64_t> oper{};
+  auto calc = [rhs] (std::int64_t lhs) -> optional<std::int64_t>
+    { return checked_calc (lhs, rhs, Op<std::int64_t>{}); };
 
   auto opt_it = storage_.find (key);
   if (!opt_it.has_value ())
     {
-      auto n = oper (0, rhs);
+      auto opt_n = calc (0);
+      if (!opt_n.has_value ())
+	return err_overflow ();
+
+      auto n = opt_n.value ();
       db::data data{ db::integer{ n } };
       storage_.insert (std::move (key), std::move (data));
       return integer (n);
@@ -586,7 +701,11 @@ processor::calc_impl (string_view cmd, bool with_rhs)
   if (data.is<db::integer> ())
     {
       auto &n = data.get<db::integer> ();
-      n = oper (n, rhs);
+      auto opt_n = calc (n);
+      if (!opt_n.has_value ())
+	return err_overflow ();
+
+      n = opt_n.value ();
       return integer (n);
     }
   else if (data.is<db::string> ())
@@ -596,7 +715,11 @@ processor::calc_impl (string_view cmd, bool with_rhs)
       if (!try_lexical_convert (num, n))
 	return err_bad_integer ();
 
-      n = oper (n, rhs);
+      auto opt_n = calc (n);
+      if (!opt_n.has_value ())
+	return err_overflow ();
+
+      n = opt_n.value ();
       data = db::data{ db::integer{ n } };
       return integer (n);
     }

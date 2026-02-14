@@ -38,7 +38,7 @@ struct data : data_base
   using base_type::base_type;
 
   std::string encode () const;
-}; // class data
+}; // struct data
 
 } // namespace resp
 } // namespace mini_redis

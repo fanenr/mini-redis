@@ -14,7 +14,7 @@ struct config
   std::size_t proto_max_array_len = 1024 * 1024;
   std::size_t proto_max_nesting = 128;
   std::size_t proto_max_inline_len = 64 * 1024;
-}; // class config
+}; // struct config
 
 } // namespace mini_redis
 

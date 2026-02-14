@@ -12,7 +12,7 @@ namespace mini_redis
 class server
 {
 public:
-  server (int port = 6379, config cfg = {});
+  server (std::uint16_t port = 6379, config cfg = {});
   ~server ();
 
   server (const server &) = delete;
