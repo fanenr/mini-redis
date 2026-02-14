@@ -33,8 +33,48 @@ integer (std::int64_t num)
   return { resp::integer{ num } };
 }
 
-static const auto invalid_arguments = simple_error ("invalid arguments");
-static const auto wrong_type = simple_error ("wrong type");
+static inline resp::data
+err_protocol ()
+{
+  return simple_error ("ERR Protocol error: expected array of bulk strings");
+}
+
+static inline resp::data
+err_syntax ()
+{
+  return simple_error ("ERR syntax error");
+}
+
+static inline resp::data
+err_bad_integer ()
+{
+  return simple_error ("ERR value is not an integer or out of range");
+}
+
+static inline resp::data
+err_wrong_type ()
+{
+  return simple_error (
+      "WRONGTYPE Operation against a key holding the wrong kind of value");
+}
+
+static inline resp::data
+err_wrong_num_args (string_view cmd)
+{
+  std::string msg{ "ERR wrong number of arguments for '" };
+  msg.append (cmd.data (), cmd.size ());
+  msg += "' command";
+  return simple_error (std::move (msg));
+}
+
+static inline resp::data
+err_unknown_command (std::string cmd)
+{
+  std::string msg{ "ERR unknown command '" };
+  msg.append (cmd.data (), cmd.size ());
+  msg += "'";
+  return simple_error (std::move (msg));
+}
 
 } // namespace mini_redis
 
@@ -69,15 +109,15 @@ processor::execute (resp::data resp)
   };
 
   if (!resp.is<resp::array> ())
-    return simple_error ("not array");
+    return err_protocol ();
 
   auto &arr = resp.get<resp::array> ();
   if (!arr.has_value ())
-    return simple_error ("null array");
+    return err_protocol ();
 
   auto &vec = arr.value ();
   if (vec.empty ())
-    return simple_error ("empty array");
+    return err_protocol ();
 
   bool all_str = true;
   for (const auto &v : vec)
@@ -90,18 +130,19 @@ processor::execute (resp::data resp)
 	}
     }
   if (!all_str)
-    return simple_error ("invalid array");
+    return err_protocol ();
 
   args_.clear ();
   args_.reserve (vec.size () - 1);
   for (auto it = vec.begin () + 1; it != vec.end (); it++)
     args_.push_back (std::move (it->get<resp::bulk_string> ().value ()));
 
-  auto &cmd = vec[0].get<resp::bulk_string> ().value ();
+  const auto &cmd_raw = vec[0].get<resp::bulk_string> ().value ();
+  auto cmd = cmd_raw;
   boost::to_lower (cmd);
   auto it = exec_map.find (cmd);
   if (it == exec_map.end ())
-    return simple_error ("unknown command");
+    return err_unknown_command (cmd_raw);
 
   auto fn = it->second;
   return (this->*fn) ();
@@ -125,7 +166,7 @@ processor::exec_ping ()
       return bulk_string (std::move (args_[0]));
 
     default:
-      return invalid_arguments;
+      return err_wrong_num_args ("ping");
     }
 }
 
@@ -147,7 +188,7 @@ processor::exec_set ()
   //                  key was not set. Otherwise, the key was set.
 
   if (args_.size () < 2)
-    return invalid_arguments;
+    return err_wrong_num_args ("set");
 
   bool nx = false;
   bool xx = false;
@@ -166,31 +207,31 @@ processor::exec_set ()
       if (str == "nx")
 	{
 	  if (nx || xx)
-	    return invalid_arguments;
+	    return err_syntax ();
 	  nx = true;
 	}
       else if (str == "xx")
 	{
 	  if (nx || xx)
-	    return invalid_arguments;
+	    return err_syntax ();
 	  xx = true;
 	}
       else if (str == "get")
 	{
 	  if (get)
-	    return invalid_arguments;
+	    return err_syntax ();
 	  get = true;
 	}
       else if (str == "keepttl")
 	{
 	  if (ex || px || exat || pxat || keepttl)
-	    return invalid_arguments;
+	    return err_syntax ();
 	  keepttl = true;
 	}
       else if (str == "ex" || str == "px" || str == "exat" || str == "pxat")
 	{
 	  if (ex || px || exat || pxat || keepttl)
-	    return invalid_arguments;
+	    return err_syntax ();
 
 	  if (str == "ex")
 	    ex = true;
@@ -202,14 +243,14 @@ processor::exec_set ()
 	    pxat = true;
 
 	  if (++i >= args_.size ())
-	    return invalid_arguments;
+	    return err_syntax ();
 
 	  const auto &num = args_[i];
 	  if (!try_lexical_convert (num, n) || n <= 0)
-	    return invalid_arguments;
+	    return err_bad_integer ();
 	}
       else
-	return invalid_arguments;
+	return err_syntax ();
     }
 
   auto &key = args_[0];
@@ -231,7 +272,7 @@ processor::exec_set ()
 	  old = bulk_string (lexical_cast<std::string> (num));
 	}
       else
-	return wrong_type;
+	return err_wrong_type ();
     }
 
   if (nx && exists)
@@ -273,7 +314,7 @@ processor::exec_get ()
   // - nil: if the key does not exist.
 
   if (args_.size () != 1)
-    return invalid_arguments;
+    return err_wrong_num_args ("get");
 
   const auto &key = args_[0];
 
@@ -294,7 +335,7 @@ processor::exec_get ()
       return bulk_string (std::move (str));
     }
 
-  return wrong_type;
+  return err_wrong_type ();
 }
 
 resp::data
@@ -306,7 +347,7 @@ processor::exec_del ()
   // - integer: the number of keys that were removed.
 
   if (args_.size () < 1)
-    return invalid_arguments;
+    return err_wrong_num_args ("del");
 
   std::int64_t n = 0;
   for (const auto &key : args_)
@@ -333,7 +374,7 @@ processor::exec_expire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return expire_impl<seconds, false> ();
+  return expire_impl<seconds, false> ("expire");
 }
 
 resp::data
@@ -347,7 +388,7 @@ processor::exec_pexpire ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return expire_impl<milliseconds, false> ();
+  return expire_impl<milliseconds, false> ("pexpire");
 }
 
 resp::data
@@ -361,7 +402,7 @@ processor::exec_expireat ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return expire_impl<seconds, true> ();
+  return expire_impl<seconds, true> ("expireat");
 }
 
 resp::data
@@ -375,24 +416,24 @@ processor::exec_pexpireat ()
   //            arguments.
   // - integer: 1 if the timeout was set.
 
-  return expire_impl<milliseconds, true> ();
+  return expire_impl<milliseconds, true> ("pexpireat");
 }
 
 template <class Duration, bool At>
 resp::data
-processor::expire_impl ()
+processor::expire_impl (string_view cmd)
 {
   if (args_.size () != 2)
-    return invalid_arguments;
-
-  const auto &key = args_[0];
-  auto opt_it = storage_.find (key);
-  if (!opt_it.has_value ())
-    return integer (0);
+    return err_wrong_num_args (cmd);
 
   std::int64_t n;
   const auto &num = args_[1];
   if (!try_lexical_convert (num, n))
+    return err_bad_integer ();
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
     return integer (0);
 
   auto it = opt_it.value ();
@@ -425,7 +466,7 @@ processor::exec_ttl ()
   // - integer: -1 if the key exists but has no associated expiration.
   // - integer: -2 if the key does not exist.
 
-  return ttl_impl<seconds> ();
+  return ttl_impl<seconds> ("ttl");
 }
 
 resp::data
@@ -438,15 +479,15 @@ processor::exec_pttl ()
   // - integer: -1 if the key exists but has no associated expiration.
   // - integer: -2 if the key does not exist.
 
-  return ttl_impl<milliseconds> ();
+  return ttl_impl<milliseconds> ("pttl");
 }
 
 template <class Duration>
 resp::data
-processor::ttl_impl ()
+processor::ttl_impl (string_view cmd)
 {
   if (args_.size () != 1)
-    return invalid_arguments;
+    return err_wrong_num_args (cmd);
 
   const auto &key = args_[0];
   auto opt_it = storage_.find (key);
@@ -477,7 +518,7 @@ processor::exec_incr ()
   // RETURN:
   // - integer: the value of the key after the increment.
 
-  return calc_impl<std::plus> ();
+  return calc_impl<std::plus> ("incr", false);
 }
 
 resp::data
@@ -488,7 +529,7 @@ processor::exec_incrby ()
   // RETURN:
   // - integer: the value of the key after the increment.
 
-  return calc_impl<std::plus> ();
+  return calc_impl<std::plus> ("incrby", true);
 }
 
 resp::data
@@ -499,7 +540,7 @@ processor::exec_decr ()
   // RETURN:
   // - integer: the value of the key after decrementing it.
 
-  return calc_impl<std::minus> ();
+  return calc_impl<std::minus> ("decr", false);
 }
 
 resp::data
@@ -510,35 +551,23 @@ processor::exec_decrby ()
   // RETURN:
   // - integer: the value of the key after decrementing it.
 
-  return calc_impl<std::minus> ();
+  return calc_impl<std::minus> ("decrby", true);
 }
 
 template <template <class> class Op>
 resp::data
-processor::calc_impl ()
+processor::calc_impl (string_view cmd, bool with_rhs)
 {
-  if (args_.size () < 1)
-    return invalid_arguments;
+  if ((!with_rhs && args_.size () != 1) || (with_rhs && args_.size () != 2))
+    return err_wrong_num_args (cmd);
 
   auto &key = args_[0];
-  std::int64_t rhs;
-
-  switch (args_.size ())
+  std::int64_t rhs = 1;
+  if (with_rhs)
     {
-    case 1:
-      rhs = 1;
-      break;
-
-    case 2:
-      {
-	const auto &num = args_[1];
-	if (!try_lexical_convert (num, rhs))
-	  return wrong_type;
-      }
-      break;
-
-    default:
-      return invalid_arguments;
+      const auto &num = args_[1];
+      if (!try_lexical_convert (num, rhs))
+	return err_bad_integer ();
     }
 
   Op<std::int64_t> oper{};
@@ -565,14 +594,14 @@ processor::calc_impl ()
       std::int64_t n;
       const auto &num = data.get<db::string> ();
       if (!try_lexical_convert (num, n))
-	return wrong_type;
+	return err_bad_integer ();
 
       n = oper (n, rhs);
       data = db::data{ db::integer{ n } };
       return integer (n);
     }
   else
-    return wrong_type;
+    return err_wrong_type ();
 }
 
 } // namespace mini_redis

@@ -44,7 +44,7 @@ struct variant_wrapper : variant<Ts...>
   get_if () noexcept -> decltype (boost::variant2::get_if<U> (this)->value) *
   {
     auto p = boost::variant2::get_if<U> (this);
-    return p ? &p->value : nullptr;
+    return p == nullptr ? nullptr : &p->value;
   }
 
   template <class U>
@@ -53,7 +53,7 @@ struct variant_wrapper : variant<Ts...>
       -> decltype (boost::variant2::get_if<U> (this)->value) const *
   {
     auto p = boost::variant2::get_if<U> (this);
-    return p ? &p->value : nullptr;
+    return p == nullptr ? nullptr : &p->value;
   }
 
   template <class U>

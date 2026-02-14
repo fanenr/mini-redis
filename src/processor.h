@@ -26,19 +26,19 @@ private:
   resp::data exec_expireat ();
   resp::data exec_pexpireat ();
   template <class Duration, bool At>
-  resp::data expire_impl ();
+  resp::data expire_impl (string_view cmd);
 
   resp::data exec_ttl ();
   resp::data exec_pttl ();
   template <class Duration>
-  resp::data ttl_impl ();
+  resp::data ttl_impl (string_view cmd);
 
   resp::data exec_incr ();
   resp::data exec_incrby ();
   resp::data exec_decr ();
   resp::data exec_decrby ();
   template <template <class> class Op>
-  resp::data calc_impl ();
+  resp::data calc_impl (string_view cmd, bool with_rhs);
 
 private:
   config &config_;

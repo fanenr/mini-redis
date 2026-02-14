@@ -13,28 +13,35 @@ namespace mini_redis
 class manager
 {
 public:
-  explicit manager (asio::any_io_executor ex, config &cfg)
-      : strand_{ ex }, processor_{ cfg }
+  explicit manager (asio::any_io_executor ex, config cfg)
+      : config_{ std::move (cfg) }, processor_{ config_ }, strand_{ ex }
   {
   }
 
+  const config &
+  get_config () const
+  {
+    return config_;
+  }
+
   template <class Task>
-  inline void
+  void
   post (Task task)
   {
     asio::post (strand_, std::bind (std::move (task), &processor_));
   }
 
   template <class Task>
-  inline void
+  void
   dispatch (Task task)
   {
     asio::dispatch (strand_, std::bind (std::move (task), &processor_));
   }
 
 private:
-  asio::strand<asio::any_io_executor> strand_;
+  config config_;
   processor processor_;
+  asio::strand<asio::any_io_executor> strand_;
 }; // class manager
 
 } // namespace mini_redis

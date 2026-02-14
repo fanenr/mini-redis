@@ -13,8 +13,8 @@ class server
 {
 public:
   server (int port = 6379, config cfg = {});
-
   ~server ();
+
   server (const server &) = delete;
   server &operator= (const server &) = delete;
   server (server &&) noexcept = delete;
@@ -29,12 +29,9 @@ private:
   void start_accept ();
 
 private:
-  config config_;
-
   asio::io_context ioc_;
   tcp::acceptor acceptor_;
   asio::signal_set signals_;
-
   manager manager_;
 }; // class server
 

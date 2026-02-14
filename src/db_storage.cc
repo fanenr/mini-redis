@@ -5,8 +5,8 @@ namespace mini_redis
 namespace db
 {
 
-auto
-storage::find (const std::string &key) -> optional<iterator>
+optional<storage::iterator>
+storage::find (const std::string &key)
 {
   auto it = db_.find (key);
   if (it == db_.end ())
@@ -26,8 +26,8 @@ storage::find (const std::string &key) -> optional<iterator>
   return boost::none;
 }
 
-auto
-storage::insert (std::string key, data value) -> iterator
+storage::iterator
+storage::insert (std::string key, data value)
 {
   auto pair = db_.insert_or_assign (std::move (key), std::move (value));
   return pair.first;
@@ -59,8 +59,8 @@ storage::expire_at (iterator it, time_point at)
   ttl_.insert_or_assign (key, at);
 }
 
-auto
-storage::ttl (iterator it) -> optional<duration>
+optional<storage::duration>
+storage::ttl (iterator it)
 {
   BOOST_ASSERT (it != db_.end ());
 

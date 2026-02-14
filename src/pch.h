@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cstdint>
 #include <deque>
+#include <limits>
 #include <memory>
 #include <sstream>
 #include <string>

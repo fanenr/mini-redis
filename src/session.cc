@@ -3,15 +3,18 @@
 namespace mini_redis
 {
 
-auto
-session::make (tcp::socket sock, manager &mgr) -> session::pointer
+session::pointer
+session::make (tcp::socket sock, manager &mgr)
 {
   return std::make_shared<session> (std::move (sock), mgr);
 }
 
 session::session (tcp::socket sock, manager &mgr)
-    : socket_{ std::move (sock) }, manager_{ mgr }
+    : state_{ normal }, socket_{ std::move (sock) }, manager_{ mgr }
 {
+  const auto &cfg = manager_.get_config ();
+  parser_.set_limits (cfg.proto_max_bulk_len, cfg.proto_max_array_len,
+		      cfg.proto_max_nesting, cfg.proto_max_inline_len);
 }
 
 void
@@ -43,23 +46,48 @@ session::process ()
 {
   if (!parser_.has_data ())
     {
+      if (parser_.has_protocol_error ())
+	{
+	  std::string msg;
+	  if (!parser_.take_protocol_error (msg))
+	    msg = "ERR Protocol error: invalid request";
+
+	  results_.clear ();
+	  results_.push_back (resp::simple_error{ std::move (msg) });
+	  state_ = close_after_send;
+	  start_send ();
+	  return;
+	}
+
       start_recv ();
       return;
     }
 
   results_.clear ();
-  results_.reserve (parser_.available_data ());
+  results_.reserve (parser_.available_data () + 1);
+
+  std::string err_msg;
+  bool has_err = parser_.take_protocol_error (err_msg);
 
   auto self = shared_from_this ();
-  auto task = [self] (processor *pro)
+  auto task = [self, has_err, err_msg] (processor *pro)
     {
       while (self->parser_.has_data ())
 	{
 	  auto cmd = self->parser_.pop ();
-	  auto result = pro->execute (std::move (cmd));
-	  self->results_.push_back (std::move (result));
+	  auto res = pro->execute (std::move (cmd));
+	  self->results_.push_back (std::move (res));
 	}
-      auto start_send = [self] () { self->start_send (); };
+
+      if (has_err)
+	self->results_.push_back (resp::simple_error{ std::move (err_msg) });
+
+      auto start_send = [self, has_err] ()
+	{
+	  if (has_err)
+	    self->state_ = close_after_send;
+	  self->start_send ();
+	};
       auto ex = self->socket_.get_executor ();
       asio::post (ex, start_send);
     };
@@ -87,6 +115,13 @@ session::start_send ()
 	  self->close ();
 	  return;
 	}
+
+      if (self->state_ == close_after_send)
+	{
+	  self->close ();
+	  return;
+	}
+
       self->start_recv ();
     };
   asio::async_write (socket_, bufs, write_cb);

@@ -5,6 +5,30 @@ namespace mini_redis
 namespace resp
 {
 
+namespace
+{
+
+bool
+contains_cr_or_lf (const std::string &str, std::size_t first, std::size_t last)
+{
+  for (std::size_t i = first; i < last; i++)
+    if (str[i] == '\r' || str[i] == '\n')
+      return true;
+  return false;
+}
+
+} // namespace
+
+void
+parser::set_limits (std::size_t max_bulk_len, std::size_t max_array_len,
+		    std::size_t max_nesting, std::size_t max_inline_len)
+{
+  max_bulk_len_ = max_bulk_len;
+  max_array_len_ = max_array_len;
+  max_nesting_ = max_nesting;
+  max_inline_len_ = max_inline_len;
+}
+
 void
 parser::append_chunk (string_view chk)
 {
@@ -42,8 +66,39 @@ parser::has_data () const
 }
 
 bool
+parser::has_protocol_error () const
+{
+  return protocol_error_;
+}
+
+bool
+parser::take_protocol_error (std::string &out)
+{
+  if (!protocol_error_)
+    return false;
+
+  out = std::move (protocol_error_msg_);
+  protocol_error_msg_.clear ();
+  protocol_error_ = false;
+  return true;
+}
+
+bool
 parser::try_parse ()
 {
+  if (protocol_error_)
+    return false;
+  if (max_inline_len_ != 0)
+    {
+      auto pos = find_crlf ();
+      if (pos == std::string::npos && buffer_.size () > max_inline_len_)
+	{
+	  protocol_error ("ERR Protocol error: inline length exceeds "
+			  "proto_max_inline_len");
+	  return false;
+	}
+    }
+
   optional<data> resp;
   std::size_t consumed = 0;
 
@@ -70,9 +125,8 @@ parser::try_parse ()
       break;
 
     default:
-      // TODO: response error
-      // bad resp: unknown prefix
-      consumed = 1;
+      protocol_error ("ERR Protocol error: unknown prefix");
+      return false;
     }
 
   if (consumed == 0)
@@ -113,6 +167,15 @@ parser::push_value (data resp)
     }
 }
 
+void
+parser::protocol_error (std::string msg)
+{
+  protocol_error_ = true;
+  protocol_error_msg_ = std::move (msg);
+  frames_.clear ();
+  buffer_.clear ();
+}
+
 std::size_t
 parser::find_crlf () const
 {
@@ -125,6 +188,11 @@ parser::parse_simple_string (optional<data> &out)
   auto pos = find_crlf ();
   if (pos == std::string::npos)
     return 0;
+  if (contains_cr_or_lf (buffer_, 1, pos))
+    {
+      protocol_error ("ERR Protocol error: bad simple string encoding");
+      return 0;
+    }
 
   std::string str{ buffer_.data () + 1, pos - 1 };
   out = data{ simple_string{ std::move (str) } };
@@ -137,6 +205,11 @@ parser::parse_simple_error (optional<data> &out)
   auto pos = find_crlf ();
   if (pos == std::string::npos)
     return 0;
+  if (contains_cr_or_lf (buffer_, 1, pos))
+    {
+      protocol_error ("ERR Protocol error: bad simple error encoding");
+      return 0;
+    }
 
   std::string str{ buffer_.data () + 1, pos - 1 };
   out = data{ simple_error{ std::move (str) } };
@@ -151,17 +224,15 @@ parser::parse_bulk_string (optional<data> &out)
     return 0;
   if (pos1 == 1)
     {
-      // TODO: response error
-      // bad bulk string: missing digits
-      return pos1 + 2;
+      protocol_error ("ERR Protocol error: missing bulk length");
+      return 0;
     }
 
   std::int64_t len;
   if (!try_lexical_convert (buffer_.data () + 1, pos1 - 1, len))
     {
-      // TODO: response error
-      // bad bulk string: invalid length
-      return pos1 + 2;
+      protocol_error ("ERR Protocol error: invalid bulk length");
+      return 0;
     }
   if (len == -1)
     {
@@ -170,27 +241,39 @@ parser::parse_bulk_string (optional<data> &out)
     }
   if (len < 0)
     {
-      // TODO: response error
-      // bad bulk string: invalid length
-      return pos1 + 2;
+      protocol_error ("ERR Protocol error: invalid bulk length");
+      return 0;
     }
 
-  // TODO: limit bulk string length
-
-  auto pos2 = pos1 + 2 + len;
-  if (buffer_.size () < pos2 + 2)
-    return 0;
-  if (buffer_[pos2] != '\r' || buffer_[pos2 + 1] != '\n')
+  auto ulen = static_cast<std::uint64_t> (len);
+  if (max_bulk_len_ != 0 && ulen > max_bulk_len_)
     {
-      // TODO: response error
-      // bad bulk string: missing CRLF after data
-      return pos2;
+      protocol_error (
+	  "ERR Protocol error: bulk length exceeds proto_max_bulk_len");
+      return 0;
+    }
+  if (ulen > std::numeric_limits<std::size_t>::max ())
+    {
+      protocol_error ("ERR Protocol error: bulk length is too large");
+      return 0;
+    }
+  auto len_sz = static_cast<std::size_t> (ulen);
+
+  auto data_start = pos1 + 2;
+  if (buffer_.size () - data_start < len_sz)
+    return 0;
+  auto data_end = data_start + len_sz;
+  if (buffer_.size () - data_end < 2)
+    return 0;
+  if (buffer_[data_end] != '\r' || buffer_[data_end + 1] != '\n')
+    {
+      protocol_error ("ERR Protocol error: bad bulk string encoding");
+      return 0;
     }
 
-  std::string str{ buffer_.data () + pos1 + 2,
-		   static_cast<std::size_t> (len) };
+  std::string str{ buffer_.data () + data_start, len_sz };
   out = data{ bulk_string{ std::move (str) } };
-  return pos2 + 2;
+  return data_end + 2;
 }
 
 std::size_t
@@ -201,17 +284,15 @@ parser::parse_integer (optional<data> &out)
     return 0;
   if (pos == 1)
     {
-      // TODO: response error
-      // bad integer: missing digits
-      return pos + 2;
+      protocol_error ("ERR Protocol error: missing integer");
+      return 0;
     }
 
   std::int64_t num;
   if (!try_lexical_convert (buffer_.data () + 1, pos - 1, num))
     {
-      // TODO: response error
-      // bad integer: invalid number
-      return pos + 2;
+      protocol_error ("ERR Protocol error: invalid integer");
+      return 0;
     }
 
   out = data{ integer{ num } };
@@ -226,17 +307,15 @@ parser::parse_array (optional<data> &out)
     return 0;
   if (pos == 1)
     {
-      // TODO: response error
-      // bad array: missing digits
-      return pos + 2;
+      protocol_error ("ERR Protocol error: missing array length");
+      return 0;
     }
 
   std::int64_t len;
   if (!try_lexical_convert (buffer_.data () + 1, pos - 1, len))
     {
-      // TODO: response error
-      // bad array: invalid length
-      return pos + 2;
+      protocol_error ("ERR Protocol error: invalid array length");
+      return 0;
     }
   if (len == 0)
     {
@@ -250,12 +329,30 @@ parser::parse_array (optional<data> &out)
     }
   if (len < 0)
     {
-      // TODO: response error
-      // bad array: invalid length
-      return pos + 2;
+      protocol_error ("ERR Protocol error: invalid array length");
+      return 0;
     }
 
-  frame frm{ static_cast<std::size_t> (len), {} };
+  auto ulen = static_cast<std::uint64_t> (len);
+  if (max_array_len_ != 0 && ulen > max_array_len_)
+    {
+      protocol_error (
+	  "ERR Protocol error: array length exceeds proto_max_array_len");
+      return 0;
+    }
+  if (ulen > std::numeric_limits<std::size_t>::max ())
+    {
+      protocol_error ("ERR Protocol error: array length is too large");
+      return 0;
+    }
+  if (max_nesting_ != 0 && frames_.size () + 1 > max_nesting_)
+    {
+      protocol_error (
+	  "ERR Protocol error: array nesting exceeds proto_max_nesting");
+      return 0;
+    }
+
+  frame frm{ static_cast<std::size_t> (ulen), {} };
   frames_.push_back (std::move (frm));
   return pos + 2;
 }
