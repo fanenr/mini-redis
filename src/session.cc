@@ -17,6 +17,20 @@ make_parser_config (const config &cfg)
   return c;
 }
 
+milliseconds
+get_conn_idle_timeout (const config &cfg)
+{
+  auto ms = cfg.conn_idle_timeout_ms;
+  if (ms == 0)
+    return milliseconds::zero ();
+
+  auto max = static_cast<std::size_t> (
+      std::numeric_limits<milliseconds::rep>::max ());
+  if (ms > max)
+    ms = max;
+  return milliseconds{ ms };
+}
+
 } // namespace
 
 session::pointer
@@ -26,7 +40,8 @@ session::make (tcp::socket sock, manager &mgr)
 }
 
 session::session (tcp::socket sock, manager &mgr)
-    : state_{ normal }, socket_{ std::move (sock) }, manager_{ mgr },
+    : state_{ normal }, socket_{ std::move (sock) }, idle_timer_gen_{ 0 },
+      idle_timer_{ socket_.get_executor () }, manager_{ mgr },
       parser_{ make_parser_config (mgr.get_config ()) }
 {
 }
@@ -34,7 +49,29 @@ session::session (tcp::socket sock, manager &mgr)
 void
 session::start ()
 {
+  refresh_idle_timeout ();
   start_recv ();
+}
+
+void
+session::refresh_idle_timeout ()
+{
+  auto timeout = get_conn_idle_timeout (manager_.get_config ());
+  if (timeout == milliseconds::zero ())
+    return;
+
+  ++idle_timer_gen_;
+  auto gen = idle_timer_gen_;
+
+  idle_timer_.expires_after (timeout);
+
+  auto self = shared_from_this ();
+  auto wait_cb = [self, gen] (const error_code &ec)
+    {
+      if (!ec && gen == self->idle_timer_gen_)
+	self->close ();
+    };
+  idle_timer_.async_wait (wait_cb);
 }
 
 void
@@ -48,6 +85,7 @@ session::start_recv ()
 	  self->close ();
 	  return;
 	}
+      self->refresh_idle_timeout ();
       self->parser_.append_chunk ({ self->recv_buffer_.data (), n });
       self->parser_.parse ();
       self->process ();
@@ -136,6 +174,7 @@ session::start_send ()
 	  return;
 	}
 
+      self->refresh_idle_timeout ();
       self->start_recv ();
     };
   asio::async_write (socket_, bufs, write_cb);
@@ -144,6 +183,7 @@ session::start_send ()
 void
 session::close ()
 {
+  idle_timer_.cancel ();
   error_code ec;
   auto r = socket_.close (ec);
   (void) r;

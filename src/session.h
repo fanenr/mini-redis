@@ -21,6 +21,7 @@ public:
   void start ();
 
 private:
+  void refresh_idle_timeout ();
   void start_recv ();
   void process ();
   void start_send ();
@@ -35,6 +36,8 @@ private:
 
   int state_;
   tcp::socket socket_;
+  std::uint64_t idle_timer_gen_;
+  asio::steady_timer idle_timer_;
   std::vector<resp::data> results_;
   std::array<char, 4096> recv_buffer_;
   std::vector<std::string> send_buffers_;
