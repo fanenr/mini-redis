@@ -3,6 +3,22 @@
 namespace mini_redis
 {
 
+namespace
+{
+
+resp::parser::config
+make_parser_config (const config &cfg)
+{
+  resp::parser::config c;
+  c.max_nesting = cfg.proto_max_nesting;
+  c.max_bulk_len = cfg.proto_max_bulk_len;
+  c.max_array_len = cfg.proto_max_array_len;
+  c.max_inline_len = cfg.proto_max_inline_len;
+  return c;
+}
+
+} // namespace
+
 session::pointer
 session::make (tcp::socket sock, manager &mgr)
 {
@@ -10,11 +26,9 @@ session::make (tcp::socket sock, manager &mgr)
 }
 
 session::session (tcp::socket sock, manager &mgr)
-    : state_{ normal }, socket_{ std::move (sock) }, manager_{ mgr }
+    : state_{ normal }, socket_{ std::move (sock) }, manager_{ mgr },
+      parser_{ make_parser_config (mgr.get_config ()) }
 {
-  const auto &cfg = manager_.get_config ();
-  parser_.set_limits (cfg.proto_max_bulk_len, cfg.proto_max_array_len,
-		      cfg.proto_max_nesting, cfg.proto_max_inline_len);
 }
 
 void

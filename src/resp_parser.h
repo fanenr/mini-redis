@@ -13,8 +13,17 @@ namespace resp
 class parser
 {
 public:
-  void set_limits (std::size_t max_bulk_len, std::size_t max_array_len,
-		   std::size_t max_nesting, std::size_t max_inline_len);
+  struct config
+  {
+    // 0 means no limit
+    std::size_t max_nesting = 0;
+    std::size_t max_bulk_len = 0;
+    std::size_t max_array_len = 0;
+    std::size_t max_inline_len = 0;
+  };
+
+  explicit parser (config cfg);
+
   void append_chunk (string_view chk);
   std::size_t parse ();
   data pop ();
@@ -41,11 +50,7 @@ private:
     std::vector<data> array;
   };
 
-  std::size_t max_bulk_len_ = 0;
-  std::size_t max_array_len_ = 0;
-  std::size_t max_nesting_ = 0;
-  std::size_t max_inline_len_ = 0;
-
+  config config_;
   bool protocol_error_ = false;
   std::string protocol_error_msg_;
 

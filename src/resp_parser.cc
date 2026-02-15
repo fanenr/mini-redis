@@ -5,29 +5,7 @@ namespace mini_redis
 namespace resp
 {
 
-namespace
-{
-
-bool
-contains_cr_or_lf (const std::string &str, std::size_t first, std::size_t last)
-{
-  for (std::size_t i = first; i < last; i++)
-    if (str[i] == '\r' || str[i] == '\n')
-      return true;
-  return false;
-}
-
-} // namespace
-
-void
-parser::set_limits (std::size_t max_bulk_len, std::size_t max_array_len,
-		    std::size_t max_nesting, std::size_t max_inline_len)
-{
-  max_bulk_len_ = max_bulk_len;
-  max_array_len_ = max_array_len;
-  max_nesting_ = max_nesting;
-  max_inline_len_ = max_inline_len;
-}
+parser::parser (config cfg) : config_{ std::move (cfg) } {}
 
 void
 parser::append_chunk (string_view chk)
@@ -88,10 +66,10 @@ parser::try_parse ()
 {
   if (protocol_error_)
     return false;
-  if (max_inline_len_ != 0)
+  if (config_.max_inline_len != 0)
     {
       auto pos = find_crlf ();
-      if (pos == std::string::npos && buffer_.size () > max_inline_len_)
+      if (pos == std::string::npos && buffer_.size () > config_.max_inline_len)
 	{
 	  protocol_error ("ERR Protocol error: inline length exceeds "
 			  "proto_max_inline_len");
@@ -188,11 +166,6 @@ parser::parse_simple_string (optional<data> &out)
   auto pos = find_crlf ();
   if (pos == std::string::npos)
     return 0;
-  if (contains_cr_or_lf (buffer_, 1, pos))
-    {
-      protocol_error ("ERR Protocol error: bad simple string encoding");
-      return 0;
-    }
 
   std::string str{ buffer_.data () + 1, pos - 1 };
   out = data{ simple_string{ std::move (str) } };
@@ -205,11 +178,6 @@ parser::parse_simple_error (optional<data> &out)
   auto pos = find_crlf ();
   if (pos == std::string::npos)
     return 0;
-  if (contains_cr_or_lf (buffer_, 1, pos))
-    {
-      protocol_error ("ERR Protocol error: bad simple error encoding");
-      return 0;
-    }
 
   std::string str{ buffer_.data () + 1, pos - 1 };
   out = data{ simple_error{ std::move (str) } };
@@ -246,7 +214,7 @@ parser::parse_bulk_string (optional<data> &out)
     }
 
   auto ulen = static_cast<std::uint64_t> (len);
-  if (max_bulk_len_ != 0 && ulen > max_bulk_len_)
+  if (config_.max_bulk_len != 0 && ulen > config_.max_bulk_len)
     {
       protocol_error (
 	  "ERR Protocol error: bulk length exceeds proto_max_bulk_len");
@@ -334,7 +302,7 @@ parser::parse_array (optional<data> &out)
     }
 
   auto ulen = static_cast<std::uint64_t> (len);
-  if (max_array_len_ != 0 && ulen > max_array_len_)
+  if (config_.max_array_len != 0 && ulen > config_.max_array_len)
     {
       protocol_error (
 	  "ERR Protocol error: array length exceeds proto_max_array_len");
@@ -345,7 +313,7 @@ parser::parse_array (optional<data> &out)
       protocol_error ("ERR Protocol error: array length is too large");
       return 0;
     }
-  if (max_nesting_ != 0 && frames_.size () + 1 > max_nesting_)
+  if (config_.max_nesting != 0 && frames_.size () + 1 > config_.max_nesting)
     {
       protocol_error (
 	  "ERR Protocol error: array nesting exceeds proto_max_nesting");

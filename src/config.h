@@ -10,9 +10,9 @@ struct config
 {
   // 0 means no limit
   std::size_t timeout = 0;
+  std::size_t proto_max_nesting = 128;
   std::size_t proto_max_bulk_len = 512 * 1024 * 1024;
   std::size_t proto_max_array_len = 1024 * 1024;
-  std::size_t proto_max_nesting = 128;
   std::size_t proto_max_inline_len = 64 * 1024;
 }; // struct config
 
