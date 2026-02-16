@@ -7,24 +7,20 @@ FEATURES
 --------
 
 * Fully implements the RESP2 protocol.
-* Supported Redis commands:
-	PING, SAVE, LOAD, SET, GET, DEL, EXPIRE, PEXPIRE, EXPIREAT, PEXPIREAT, TTL, PTTL,
-	INCR, INCRBY, DECR, DECRBY
+* Supported Redis commands(16):
+	PING, SAVE, LOAD, SET, GET, DEL, EXPIRE, PEXPIRE, EXPIREAT, PEXPIREAT,
+	TTL, PTTL, INCR, INCRBY, DECR, DECRBY
 
 PERSISTENCE
 -----------
 
-* SAVE
-	Save a snapshot to `dump.mrdb`.
+* SAVE [TO <path>]
+	Save a snapshot of the current database to the specified path.
+	If no path is provided, `dump.mrdb' will be used.
 
-* SAVE TO path
-	Save a snapshot to the specified path.
-
-* LOAD
-	Load snapshot data from `dump.mrdb`.
-
-* LOAD FROM path
+* LOAD [FROM <path>]
 	Load snapshot data from the specified path.
+	If no path is provided, `dump.mrdb' will be used.
 
 DEPENDENCIES
 ------------
