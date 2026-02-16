@@ -83,5 +83,62 @@ storage::clear_expires (iterator it)
   ttl_.erase (key);
 }
 
+std::vector<storage::snapshot_entry>
+storage::snapshot ()
+{
+  auto now = clock_type::now ();
+
+  std::vector<std::string> expired_keys;
+  std::vector<snapshot_entry> out;
+  expired_keys.reserve (ttl_.size ());
+  out.reserve (db_.size ());
+  for (const auto &item : db_)
+    {
+      const auto &key = item.first;
+      auto ttl_it = ttl_.find (key);
+      if (ttl_it == ttl_.end ())
+	{
+	  out.push_back ({ key, item.second, boost::none });
+	  continue;
+	}
+
+      auto expires = ttl_it->second;
+      if (now >= expires)
+	expired_keys.push_back (key);
+      else
+	out.push_back ({ key, item.second, expires });
+    }
+
+  for (const auto &key : expired_keys)
+    {
+      ttl_.erase (key);
+      db_.erase (key);
+    }
+
+  return out;
+}
+
+void
+storage::replace_with_snapshot (std::vector<snapshot_entry> entries)
+{
+  db_type new_db;
+  ttl_type new_ttl;
+  new_db.reserve (entries.size ());
+  new_ttl.reserve (entries.size ());
+  for (auto &entry : entries)
+    {
+      auto pair = new_db.insert_or_assign (std::move (entry.key),
+					   std::move (entry.value));
+      const auto &key = pair.first->first;
+      if (entry.expire_at.has_value ())
+	new_ttl.insert_or_assign (key, entry.expire_at.value ());
+      else
+	new_ttl.erase (key);
+    }
+
+  db_.swap (new_db);
+  ttl_.swap (new_ttl);
+}
+
 } // namespace db
 } // namespace mini_redis

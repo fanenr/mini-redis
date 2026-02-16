@@ -35,7 +35,7 @@ public:
 private:
   bool try_parse ();
   void push_value (data resp);
-  void protocol_error (std::string msg);
+  void protocol_error (string_view msg);
   std::size_t find_crlf () const;
   std::size_t parse_simple_string (optional<data> &out);
   std::size_t parse_simple_error (optional<data> &out);

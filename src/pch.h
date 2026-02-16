@@ -18,7 +18,10 @@
 #include <boost/variant2.hpp>
 
 #include <array>
+#include <cerrno>
 #include <chrono>
+#include <cstdio>
+#include <cstring>
 #include <cstdint>
 #include <deque>
 #include <limits>

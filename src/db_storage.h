@@ -22,6 +22,13 @@ public:
 
   typedef db_type::iterator iterator;
 
+  struct snapshot_entry
+  {
+    std::string key;
+    data value;
+    optional<time_point> expire_at;
+  };
+
 public:
   optional<iterator> find (const std::string &key);
   iterator insert (std::string key, data value);
@@ -31,6 +38,9 @@ public:
   void expire_at (iterator it, time_point at);
   optional<duration> ttl (iterator it);
   void clear_expires (iterator it);
+
+  std::vector<snapshot_entry> snapshot ();
+  void replace_with_snapshot (std::vector<snapshot_entry> entries);
 
 private:
   db_type db_;

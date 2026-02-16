@@ -1,7 +1,10 @@
 #include "processor.h"
+#include "persistence.h"
 
 namespace mini_redis
 {
+
+static const char *default_dump_path = "dump.mrdb";
 
 static inline resp::data
 simple_string (std::string msg)
@@ -74,12 +77,20 @@ err_wrong_num_args (string_view cmd)
 }
 
 static inline resp::data
-err_unknown_command (std::string cmd)
+err_unknown_command (string_view cmd)
 {
   std::string msg{ "ERR unknown command '" };
   msg.append (cmd.data (), cmd.size ());
   msg += "'";
   return simple_error (std::move (msg));
+}
+
+static inline resp::data
+err_persistence (std::string msg)
+{
+  std::string out{ "ERR " };
+  out += msg;
+  return simple_error (std::move (out));
 }
 
 optional<std::int64_t>
@@ -135,6 +146,9 @@ processor::execute (resp::data resp)
   typedef resp::data (processor::*exec_fn) ();
   static const unordered_flat_map<string_view, exec_fn> exec_map{
     { "ping", &processor::exec_ping },
+
+    { "save", &processor::exec_save },
+    { "load", &processor::exec_load },
 
     { "set", &processor::exec_set },
     { "get", &processor::exec_get },
@@ -214,6 +228,61 @@ processor::exec_ping ()
     default:
       return err_wrong_num_args ("ping");
     }
+}
+
+resp::data
+processor::exec_save ()
+{
+  // SAVE
+  // SAVE TO path
+
+  std::string path{ default_dump_path };
+  if (!args_.empty ())
+    {
+      if (args_.size () != 2)
+	return err_syntax ();
+
+      auto opt = args_[0];
+      boost::to_lower (opt);
+      if (opt != "to")
+	return err_syntax ();
+
+      path = std::move (args_[1]);
+    }
+
+  auto ret = persistence::save_to (path, storage_);
+  if (!ret.ok)
+    return err_persistence (std::move (ret.err));
+
+  return simple_string ("OK");
+}
+
+resp::data
+processor::exec_load ()
+{
+  // LOAD
+  // LOAD FROM path
+
+  std::string path{ default_dump_path };
+  if (!args_.empty ())
+    {
+      if (args_.size () != 2)
+	return err_syntax ();
+
+      auto opt = args_[0];
+      boost::to_lower (opt);
+      if (opt != "from")
+	return err_syntax ();
+
+      path = std::move (args_[1]);
+    }
+
+  auto ret = persistence::load_from (path);
+  if (!ret.ok)
+    return err_persistence (std::move (ret.err));
+
+  storage_.replace_with_snapshot (std::move (ret.entries));
+  return simple_string ("OK");
 }
 
 resp::data

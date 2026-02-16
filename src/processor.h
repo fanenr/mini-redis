@@ -17,6 +17,9 @@ public:
 private:
   resp::data exec_ping ();
 
+  resp::data exec_save ();
+  resp::data exec_load ();
+
   resp::data exec_set ();
   resp::data exec_get ();
   resp::data exec_del ();

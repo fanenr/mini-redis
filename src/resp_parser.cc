@@ -146,10 +146,10 @@ parser::push_value (data resp)
 }
 
 void
-parser::protocol_error (std::string msg)
+parser::protocol_error (string_view msg)
 {
   protocol_error_ = true;
-  protocol_error_msg_ = std::move (msg);
+  protocol_error_msg_.assign (msg.data (), msg.size ());
   frames_.clear ();
   buffer_.clear ();
 }
