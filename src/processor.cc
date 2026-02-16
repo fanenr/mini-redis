@@ -1,5 +1,5 @@
 #include "processor.h"
-#include "persistence.h"
+#include "db_disk.h"
 
 namespace mini_redis
 {
@@ -250,9 +250,9 @@ processor::exec_save ()
       path = std::move (args_[1]);
     }
 
-  auto ret = persistence::save_to (path, storage_);
-  if (!ret.ok)
-    return err_persistence (std::move (ret.err));
+  auto ret = db::save_to (path, storage_.create_snapshot ());
+  if (!ret.has_value ())
+    return err_persistence (ret.error ());
 
   return simple_string ("OK");
 }
@@ -277,11 +277,12 @@ processor::exec_load ()
       path = std::move (args_[1]);
     }
 
-  auto ret = persistence::load_from (path);
-  if (!ret.ok)
-    return err_persistence (std::move (ret.err));
+  db::snapshot snap;
+  auto res = db::load_from (path, snap);
+  if (!res.has_value ())
+    return err_persistence (res.error ());
 
-  storage_.replace_with_snapshot (std::move (ret.entries));
+  storage_.replace_with_snapshot (std::move (snap));
   return simple_string ("OK");
 }
 
@@ -405,12 +406,12 @@ processor::exec_set ()
     storage_.expire_after (it, milliseconds{ n });
   else if (exat)
     {
-      db::storage::time_point tp{ seconds{ n } };
+      db::time_point tp{ seconds{ n } };
       storage_.expire_at (it, tp);
     }
   else if (pxat)
     {
-      db::storage::time_point tp{ milliseconds{ n } };
+      db::time_point tp{ milliseconds{ n } };
       storage_.expire_at (it, tp);
     }
   else if (!keepttl)
@@ -578,10 +579,10 @@ processor::expire_impl (string_view cmd)
     return integer (0);
 
   auto it = opt_it.value ();
-  db::storage::time_point expires;
-  auto now = db::storage::clock_type::now ();
+  db::time_point expires;
+  auto now = db::clock_type::now ();
   auto ttl = storage_.ttl (it);
-  auto zero = db::storage::duration::zero ();
+  auto zero = db::duration::zero ();
   if (ttl.has_value () && ttl.value () <= zero)
     {
       storage_.erase (it);
@@ -589,7 +590,7 @@ processor::expire_impl (string_view cmd)
     }
 
   if (At)
-    expires = db::storage::time_point{ Duration{ n } };
+    expires = db::time_point{ Duration{ n } };
   else
     expires = now + Duration{ n };
 
@@ -679,7 +680,7 @@ processor::ttl_impl (string_view cmd)
     return integer (-1);
 
   auto ttl_raw = ttl.value ();
-  if (ttl_raw <= db::storage::duration::zero ())
+  if (ttl_raw <= db::duration::zero ())
     {
       storage_.erase (it);
       return integer (-2);

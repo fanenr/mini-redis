@@ -1,10 +1,10 @@
-#include "persistence.h"
+#include "db_disk.h"
 
 #include "resp_parser.h"
 
 namespace mini_redis
 {
-namespace persistence
+namespace db
 {
 
 namespace
@@ -12,33 +12,17 @@ namespace
 
 enum : std::int64_t
 {
-  type_string = db::data::index_of<db::string> (),
-  type_integer = db::data::index_of<db::integer> (),
-  type_list = db::data::index_of<db::list> (),
-  type_set = db::data::index_of<db::set> (),
-  type_hash = db::data::index_of<db::hashtable> (),
+  type_string = data::index_of<string> (),
+  type_integer = data::index_of<integer> (),
+  type_list = data::index_of<list> (),
+  type_set = data::index_of<set> (),
+  type_hash = data::index_of<hashtable> (),
 };
+
+typedef result<void, std::string> result_type;
 
 static const char format_magic[4]{ 'M', 'R', 'D', 'B' };
 static const char format_version = 1;
-
-save_result
-make_save_result (bool ok, std::string err = {})
-{
-  save_result out;
-  out.ok = ok;
-  out.err = std::move (err);
-  return out;
-}
-
-load_result
-make_load_result (bool ok, std::string err = {})
-{
-  load_result out;
-  out.ok = ok;
-  out.err = std::move (err);
-  return out;
-}
 
 void
 append_array_header (std::string &out, std::size_t n)
@@ -67,7 +51,7 @@ append_integer (std::string &out, std::int64_t i)
 }
 
 void
-append_entry (std::string &out, const db::storage::snapshot_entry &entry)
+append_entry (std::string &out, const snapshot::entry &entry)
 {
   append_array_header (out, 5);
 
@@ -78,21 +62,21 @@ append_entry (std::string &out, const db::storage::snapshot_entry &entry)
     case type_string:
       {
 	append_integer (out, type_string);
-	append_bulk_string (out, value.get<db::string> ());
+	append_bulk_string (out, value.get<string> ());
       }
       break;
 
     case type_integer:
       {
 	append_integer (out, type_integer);
-	append_integer (out, value.get<db::integer> ());
+	append_integer (out, value.get<integer> ());
       }
       break;
 
     case type_list:
       {
 	append_integer (out, type_list);
-	const auto &ls = value.get<db::list> ();
+	const auto &ls = value.get<list> ();
 	append_array_header (out, ls.size ());
 	for (const auto &i : ls)
 	  append_bulk_string (out, i);
@@ -102,7 +86,7 @@ append_entry (std::string &out, const db::storage::snapshot_entry &entry)
     case type_set:
       {
 	append_integer (out, type_set);
-	const auto &st = value.get<db::set> ();
+	const auto &st = value.get<set> ();
 	append_array_header (out, st.size ());
 	for (const auto &i : st)
 	  append_bulk_string (out, i);
@@ -112,9 +96,9 @@ append_entry (std::string &out, const db::storage::snapshot_entry &entry)
     case type_hash:
       {
 	append_integer (out, type_hash);
-	const auto &hs = value.get<db::hashtable> ();
-	append_array_header (out, hs.size () * 2);
-	for (const auto &p : hs)
+	const auto &ht = value.get<hashtable> ();
+	append_array_header (out, ht.size () * 2);
+	for (const auto &p : ht)
 	  {
 	    append_bulk_string (out, p.first);
 	    append_bulk_string (out, p.second);
@@ -123,7 +107,7 @@ append_entry (std::string &out, const db::storage::snapshot_entry &entry)
       break;
 
     default:
-      BOOST_THROW_EXCEPTION (std::logic_error ("bad db::data type"));
+      BOOST_THROW_EXCEPTION (std::logic_error ("bad data type"));
     }
 
   std::int64_t has_expire = 0;
@@ -169,7 +153,7 @@ write_all (std::FILE *fp, string_view bytes)
   return true;
 }
 
-save_result
+result_type
 save_file (std::string path, string_view body)
 {
   auto temp_path = path + ".tmp";
@@ -184,34 +168,29 @@ save_file (std::string path, string_view body)
   const char header[5]{ format_magic[0], format_magic[1], format_magic[2],
 			format_magic[3], static_cast<char> (format_version) };
   if (fp == nullptr)
-    return make_save_result (
-	false, format_errno ("save failed: cannot open temporary file"));
+    return format_errno ("save failed: cannot open temporary file");
   if (!write_all (fp, { header, sizeof (header) }))
     {
       std::fclose (fp);
       std::remove (temp_path_cstr);
-      return make_save_result (
-	  false, format_errno ("save failed: cannot write header"));
+      return format_errno ("save failed: cannot write header");
     }
   if (!body.empty () && !write_all (fp, body))
     {
       std::fclose (fp);
       std::remove (temp_path_cstr);
-      return make_save_result (
-	  false, format_errno ("save failed: cannot write body"));
+      return format_errno ("save failed: cannot write body");
     }
   if (std::fflush (fp) != 0)
     {
       std::fclose (fp);
       std::remove (temp_path_cstr);
-      return make_save_result (
-	  false, format_errno ("save failed: cannot flush file"));
+      return format_errno ("save failed: cannot flush file");
     }
   if (std::fclose (fp) != 0)
     {
       std::remove (temp_path_cstr);
-      return make_save_result (
-	  false, format_errno ("save failed: cannot close file"));
+      return format_errno ("save failed: cannot close file");
     }
 
   std::remove (backup_path_cstr);
@@ -222,8 +201,7 @@ save_file (std::string path, string_view body)
   else if (errno != ENOENT)
     {
       std::remove (temp_path_cstr);
-      return make_save_result (
-	  false, format_errno ("save failed: cannot move old snapshot"));
+      return format_errno ("save failed: cannot move old snapshot");
     }
 
   if (std::rename (temp_path_cstr, path_cstr) != 0)
@@ -231,23 +209,21 @@ save_file (std::string path, string_view body)
       if (moved)
 	std::rename (backup_path_cstr, path_cstr);
       std::remove (temp_path_cstr);
-      return make_save_result (
-	  false, format_errno ("save failed: cannot replace snapshot"));
+      return format_errno ("save failed: cannot replace snapshot");
     }
 
   if (moved)
     std::remove (backup_path_cstr);
 
-  return make_save_result (true);
+  return {};
 }
 
-load_result
+result_type
 load_file (std::string path, std::string &out)
 {
   auto *fp = std::fopen (path.c_str (), "rb");
   if (fp == nullptr)
-    return make_load_result (false,
-			     format_errno ("load failed: cannot open file"));
+    return format_errno ("load failed: cannot open file");
 
   std::array<char, 4096> buffer;
   while (true)
@@ -262,21 +238,19 @@ load_file (std::string path, std::string &out)
       if (std::ferror (fp) != 0)
 	{
 	  std::fclose (fp);
-	  return make_load_result (
-	      false, format_errno ("load failed: cannot read file"));
+	  return format_errno ("load failed: cannot read file");
 	}
       break;
     }
 
   if (std::fclose (fp) != 0)
-    return make_load_result (false,
-			     format_errno ("load failed: cannot close file"));
+    return format_errno ("load failed: cannot close file");
 
-  return make_load_result (true);
+  return {};
 }
 
-load_result
-parse_value (std::int64_t type, resp::data &input, db::data &out)
+result_type
+parse_value (std::int64_t type, resp::data &input, data &out)
 {
   switch (type)
     {
@@ -284,156 +258,146 @@ parse_value (std::int64_t type, resp::data &input, db::data &out)
       {
 	auto p = input.get_if<resp::bulk_string> ();
 	if (p == nullptr || !p->has_value ())
-	  return make_load_result (false, "load failed: invalid string value");
-	out = db::data{ db::string{ std::move (p->value ()) } };
-	return make_load_result (true);
+	  return "load failed: invalid string value";
+	out = data{ string{ std::move (p->value ()) } };
+	return {};
       }
 
     case type_integer:
       {
 	auto p = input.get_if<resp::integer> ();
 	if (p == nullptr)
-	  return make_load_result (false,
-				   "load failed: invalid integer value");
-	out = db::data{ db::integer{ *p } };
-	return make_load_result (true);
+	  return "load failed: invalid integer value";
+	out = data{ integer{ *p } };
+	return {};
       }
 
     case type_list:
       {
 	auto p = input.get_if<resp::array> ();
 	if (p == nullptr || !p->has_value ())
-	  return make_load_result (false,
-				   "load failed: invalid container value");
-	db::list ls;
+	  return "load failed: invalid container value";
+	list ls;
 	auto &arr = p->value ();
 	for (auto &item : arr)
 	  {
 	    auto p = item.get_if<resp::bulk_string> ();
 	    if (p == nullptr || !p->has_value ())
-	      return make_load_result (false,
-				       "load failed: invalid list element");
+	      return "load failed: invalid list element";
 	    ls->push_back (std::move (p->value ()));
 	  }
-	out = db::data{ std::move (ls) };
-	return make_load_result (true);
+	out = data{ std::move (ls) };
+	return {};
       }
 
     case type_set:
       {
 	auto p = input.get_if<resp::array> ();
 	if (p == nullptr || !p->has_value ())
-	  return make_load_result (false,
-				   "load failed: invalid container value");
-	db::set st;
+	  return "load failed: invalid container value";
+	set st;
 	auto &arr = p->value ();
 	for (auto &i : arr)
 	  {
 	    auto p = i.get_if<resp::bulk_string> ();
 	    if (p == nullptr || !p->has_value ())
-	      return make_load_result (false,
-				       "load failed: invalid set element");
+	      return "load failed: invalid set element";
 	    st->insert (std::move (p->value ()));
 	  }
-	out = db::data{ std::move (st) };
-	return make_load_result (true);
+	out = data{ std::move (st) };
+	return {};
       }
 
     case type_hash:
       {
 	auto p = input.get_if<resp::array> ();
 	if (p == nullptr || !p->has_value ())
-	  return make_load_result (false,
-				   "load failed: invalid container value");
-	db::hashtable hs;
+	  return "load failed: invalid container value";
+	hashtable hs;
 	auto &arr = p->value ();
 	if (arr.size () % 2 != 0)
-	  return make_load_result (false, "load failed: invalid hash length");
+	  return "load failed: invalid hash length";
 	for (std::size_t i = 0; i < arr.size (); i += 2)
 	  {
 	    auto pk = arr[i].get_if<resp::bulk_string> ();
 	    auto pv = arr[i + 1].get_if<resp::bulk_string> ();
 	    if (pk == nullptr || pv == nullptr || !pk->has_value ()
 		|| !pv->has_value ())
-	      return make_load_result (false,
-				       "load failed: invalid hash entry");
+	      return "load failed: invalid hash entry";
 	    hs->insert_or_assign (std::move (pk->value ()),
 				  std::move (pv->value ()));
 	  }
-	out = db::data{ std::move (hs) };
-	return make_load_result (true);
+	out = data{ std::move (hs) };
+	return {};
       }
 
     default:
-      return make_load_result (false, "load failed: unknown value type");
+      return "load failed: unknown value type";
     }
 }
 
-load_result
-parse_entry (resp::data &in, std::int64_t now,
-	     db::storage::snapshot_entry &out, bool &dropped)
+result_type
+parse_entry (resp::data &in, std::int64_t now, snapshot::entry &out,
+	     bool &dropped)
 {
   dropped = false;
 
   auto p = in.get_if<resp::array> ();
   if (p == nullptr || !p->has_value ())
-    return make_load_result (false, "load failed: invalid snapshot entry");
+    return "load failed: invalid snapshot entry";
   auto &arr = p->value ();
   if (arr.size () != 5)
-    return make_load_result (false, "load failed: malformed snapshot entry");
+    return "load failed: malformed snapshot entry";
 
   auto pk = arr[0].get_if<resp::bulk_string> ();
   if (pk == nullptr || !pk->has_value ())
-    return make_load_result (false, "load failed: invalid snapshot key");
+    return "load failed: invalid snapshot key";
   std::string key{ std::move (pk->value ()) };
 
   auto pt = arr[1].get_if<resp::integer> ();
   if (pt == nullptr)
-    return make_load_result (false, "load failed: invalid type tag");
+    return "load failed: invalid type tag";
   std::int64_t type = *pt;
 
-  db::data value;
+  data value;
   auto value_res = parse_value (type, arr[2], value);
-  if (!value_res.ok)
+  if (!value_res.has_value ())
     return value_res;
 
   auto ph = arr[3].get_if<resp::integer> ();
   if (ph == nullptr)
-    return make_load_result (false, "load failed: invalid expiration flag");
+    return "load failed: invalid expiration flag";
   std::int64_t has_expire = *ph;
   if (has_expire != 0 && has_expire != 1)
-    return make_load_result (false, "load failed: invalid expiration flag");
+    return "load failed: invalid expiration flag";
 
   auto pe = arr[4].get_if<resp::integer> ();
   if (pe == nullptr)
-    return make_load_result (false,
-			     "load failed: invalid expiration timestamp");
+    return "load failed: invalid expiration timestamp";
   std::int64_t expire_at_ms = *pe;
 
-  optional<db::storage::time_point> expire_at;
+  optional<time_point> expire_at;
   if (has_expire == 0)
     {
       if (expire_at_ms != 0)
-	return make_load_result (false,
-				 "load failed: malformed expiration fields");
+	return "load failed: malformed expiration fields";
     }
   else
     {
       if (expire_at_ms <= now)
 	{
 	  dropped = true;
-	  return make_load_result (true);
+	  return {};
 	}
-      expire_at = db::storage::time_point{ milliseconds{ expire_at_ms } };
+      expire_at = time_point{ milliseconds{ expire_at_ms } };
     }
 
-  out = db::storage::snapshot_entry{ std::move (key), std::move (value),
-				     expire_at };
-  return make_load_result (true);
+  out = snapshot::entry{ std::move (key), std::move (value), expire_at };
+  return {};
 }
 
-load_result
-parse_body (string_view body)
+result_type
+parse_body (string_view body, snapshot &out)
 {
   resp::parser parser{ {} };
   parser.append_chunk (body);
@@ -444,72 +408,71 @@ parse_body (string_view body)
       std::string s;
       parser.take_protocol_error (s);
       if (s.empty ())
-	return make_load_result (false, "load failed: invalid RESP payload");
-      return make_load_result (false, "load failed: " + s);
+	return "load failed: invalid RESP payload";
+      return "load failed: " + s;
     }
   if (parser.available_data () != 1)
-    return make_load_result (false, "load failed: invalid snapshot payload");
+    return "load failed: invalid snapshot payload";
 
   auto root = parser.pop ();
   auto p = root.get_if<resp::array> ();
   if (p == nullptr || !p->has_value ())
-    return make_load_result (false,
-			     "load failed: snapshot root is not an array");
+    return "load failed: snapshot root is not an array";
   auto &arr = p->value ();
 
-  auto now = duration_cast<milliseconds> (
-		 db::storage::clock_type::now ().time_since_epoch ())
-		 .count ();
-  load_result out = make_load_result (true);
+  auto now
+      = duration_cast<milliseconds> (clock_type::now ().time_since_epoch ())
+	    .count ();
+  out.entries.clear ();
   out.entries.reserve (arr.size ());
   for (auto &i : arr)
     {
       bool dropped = false;
-      db::storage::snapshot_entry entry;
+      snapshot::entry entry;
       auto entry_res = parse_entry (i, now, entry, dropped);
-      if (!entry_res.ok)
+      if (!entry_res.has_value ())
 	return entry_res;
       if (!dropped)
 	out.entries.push_back (std::move (entry));
     }
 
-  return out;
+  return {};
 }
 
 } // namespace
 
-save_result
-save_to (string_view path, db::storage &storage)
+result<void, std::string>
+save_to (string_view path, snapshot snap)
 {
-  auto entries = storage.snapshot ();
-
   std::string body;
-  append_array_header (body, entries.size ());
-  for (const auto &entry : entries)
+  append_array_header (body, snap.entries.size ());
+  for (const auto &entry : snap.entries)
     append_entry (body, entry);
 
   return save_file (path.to_string (), body);
 }
 
-load_result
-load_from (string_view path)
+result<void, std::string>
+load_from (string_view path, snapshot &out)
 {
+  out.entries.clear ();
+
   std::string raw;
   auto res = load_file (path.to_string (), raw);
-  if (!res.ok)
+  if (!res.has_value ())
     return res;
 
   if (raw.size () < 5)
-    return make_load_result (false, "load failed: file is too short");
+    return "load failed: file is too short";
 
   if (std::memcmp (raw.data (), format_magic, sizeof (format_magic)) != 0)
-    return make_load_result (false, "load failed: bad format header");
+    return "load failed: bad format header";
 
   if (raw[4] != format_version)
-    return make_load_result (false, "load failed: unsupported format version");
+    return "load failed: unsupported format version";
 
-  return parse_body (string_view{ raw.data () + 5, raw.size () - 5 });
+  return parse_body (string_view{ raw.data () + 5, raw.size () - 5 }, out);
 }
 
-} // namespace persistence
+} // namespace db
 } // namespace mini_redis

@@ -59,7 +59,7 @@ storage::expire_at (iterator it, time_point at)
   ttl_.insert_or_assign (key, at);
 }
 
-optional<storage::duration>
+optional<duration>
 storage::ttl (iterator it)
 {
   BOOST_ASSERT (it != db_.end ());
@@ -83,22 +83,22 @@ storage::clear_expires (iterator it)
   ttl_.erase (key);
 }
 
-std::vector<storage::snapshot_entry>
-storage::snapshot ()
+snapshot
+storage::create_snapshot ()
 {
   auto now = clock_type::now ();
 
   std::vector<std::string> expired_keys;
-  std::vector<snapshot_entry> out;
+  snapshot out;
   expired_keys.reserve (ttl_.size ());
-  out.reserve (db_.size ());
+  out.entries.reserve (db_.size ());
   for (const auto &item : db_)
     {
       const auto &key = item.first;
       auto ttl_it = ttl_.find (key);
       if (ttl_it == ttl_.end ())
 	{
-	  out.push_back ({ key, item.second, boost::none });
+	  out.entries.push_back ({ key, item.second, boost::none });
 	  continue;
 	}
 
@@ -106,7 +106,7 @@ storage::snapshot ()
       if (now >= expires)
 	expired_keys.push_back (key);
       else
-	out.push_back ({ key, item.second, expires });
+	out.entries.push_back ({ key, item.second, expires });
     }
 
   for (const auto &key : expired_keys)
@@ -119,13 +119,13 @@ storage::snapshot ()
 }
 
 void
-storage::replace_with_snapshot (std::vector<snapshot_entry> entries)
+storage::replace_with_snapshot (snapshot snap)
 {
   db_type new_db;
   ttl_type new_ttl;
-  new_db.reserve (entries.size ());
-  new_ttl.reserve (entries.size ());
-  for (auto &entry : entries)
+  new_db.reserve (snap.entries.size ());
+  new_ttl.reserve (snap.entries.size ());
+  for (auto &entry : snap.entries)
     {
       auto pair = new_db.insert_or_assign (std::move (entry.key),
 					   std::move (entry.value));

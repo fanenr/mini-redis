@@ -10,24 +10,27 @@ namespace mini_redis
 namespace db
 {
 
-class storage
+typedef system_clock clock_type;
+typedef clock_type::duration duration;
+typedef clock_type::time_point time_point;
+
+struct snapshot
 {
-public:
-  typedef system_clock clock_type;
-  typedef clock_type::duration duration;
-  typedef clock_type::time_point time_point;
-
-  typedef unordered_flat_map<std::string, data> db_type;
-  typedef unordered_flat_map<std::string, clock_type::time_point> ttl_type;
-
-  typedef db_type::iterator iterator;
-
-  struct snapshot_entry
+  struct entry
   {
     std::string key;
     data value;
     optional<time_point> expire_at;
   };
+  std::vector<entry> entries;
+};
+
+class storage
+{
+public:
+  typedef unordered_flat_map<std::string, data> db_type;
+  typedef unordered_flat_map<std::string, clock_type::time_point> ttl_type;
+  typedef db_type::iterator iterator;
 
 public:
   optional<iterator> find (const std::string &key);
@@ -39,8 +42,8 @@ public:
   optional<duration> ttl (iterator it);
   void clear_expires (iterator it);
 
-  std::vector<snapshot_entry> snapshot ();
-  void replace_with_snapshot (std::vector<snapshot_entry> entries);
+  snapshot create_snapshot ();
+  void replace_with_snapshot (snapshot snap);
 
 private:
   db_type db_;

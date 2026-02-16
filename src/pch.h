@@ -20,9 +20,9 @@
 #include <array>
 #include <cerrno>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <cstdint>
 #include <deque>
 #include <limits>
 #include <memory>
@@ -46,6 +46,7 @@ using boost::string_view;
 using boost::unordered_flat_map;
 using boost::unordered_flat_set;
 using boost::system::error_code;
+using boost::system::result;
 using boost::variant2::variant;
 
 using boost::lexical_cast;
