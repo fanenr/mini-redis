@@ -1,4 +1,4 @@
-.PHONY: debug release clean format
+.PHONY: debug release test format clean
 
 debug:
 	cmake -B build \
@@ -10,8 +10,11 @@ release:
 	      -DCMAKE_BUILD_TYPE=RelWithDebInfo
 	cmake --build build --parallel
 
-clean:
-	rm -rf build
+test:
+	tests/.venv/bin/python -m pytest -q tests/functional
 
 format:
 	find src -name "*.h" -o -name "*.cc" | xargs clang-format -i
+
+clean:
+	rm -rf build

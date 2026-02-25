@@ -3,140 +3,195 @@
 
 namespace mini_redis
 {
-
-static const char *default_dump_path = "dump.mrdb";
-
-static inline resp::data
-simple_string (std::string msg)
+namespace
 {
-  return { resp::simple_string{ std::move (msg) } };
-}
 
-static inline resp::data
-simple_error (std::string msg)
-{
-  return { resp::simple_error{ std::move (msg) } };
-}
+const char *default_dump_path = "dump.mrdb";
 
-static inline resp::data
-bulk_string (std::string str)
-{
-  return { resp::bulk_string{ std::move (str) } };
-}
-
-static inline resp::data
-null_bulk_string ()
-{
-  return { resp::bulk_string{ boost::none } };
-}
-
-static inline resp::data
+resp::data
 integer (std::int64_t num)
 {
   return { resp::integer{ num } };
 }
 
-static inline resp::data
-err_protocol ()
+resp::data
+simple_error (std::string msg)
 {
-  return simple_error ("ERR Protocol error: expected array of bulk strings");
+  return { resp::simple_error{ std::move (msg) } };
 }
 
-static inline resp::data
-err_syntax ()
+resp::data
+simple_string (std::string msg)
 {
-  return simple_error ("ERR syntax error");
+  return { resp::simple_string{ std::move (msg) } };
 }
 
-static inline resp::data
-err_bad_integer ()
+resp::data
+bulk_string (std::string str)
 {
-  return simple_error ("ERR value is not an integer or out of range");
+  return { resp::bulk_string{ std::move (str) } };
 }
 
-static inline resp::data
-err_overflow ()
+resp::data
+array (std::vector<resp::data> items)
 {
-  return simple_error ("ERR increment or decrement would overflow");
+  return { resp::array{ std::move (items) } };
 }
 
-static inline resp::data
-err_wrong_type ()
+resp::data
+null_bulk_string ()
 {
-  return simple_error (
-      "WRONGTYPE Operation against a key holding the wrong kind of value");
+  return { resp::bulk_string{ boost::none } };
 }
 
-static inline resp::data
-err_wrong_num_args (string_view cmd)
+resp::data
+null_array ()
+{
+  return { resp::array{ boost::none } };
+}
+
+resp::data
+empty_array ()
+{
+  return { resp::array{ std::vector<resp::data>{} } };
+}
+
+const resp::data e_protocol
+    = simple_error ("ERR Protocol error: expected array of bulk strings");
+
+const resp::data e_syntax = simple_error ("ERR syntax error");
+
+const resp::data e_bad_integer
+    = simple_error ("ERR value is not an integer or out of range");
+
+const resp::data e_overflow
+    = simple_error ("ERR increment or decrement would overflow");
+
+const resp::data e_wrong_type = simple_error (
+    "WRONGTYPE Operation against a key holding the wrong kind of value");
+
+const resp::data e_no_such_key = simple_error ("ERR no such key");
+
+const resp::data e_index_out_of_range
+    = simple_error ("ERR index out of range");
+
+const resp::data e_value_out_of_range_positive
+    = simple_error ("ERR value is out of range, must be positive");
+
+resp::data
+e_wrong_num_args (string_view cmd)
 {
   std::string msg{ "ERR wrong number of arguments for '" };
   msg.append (cmd.data (), cmd.size ());
-  msg += "' command";
+  msg.append ("' command");
   return simple_error (std::move (msg));
 }
 
-static inline resp::data
-err_unknown_command (string_view cmd)
+resp::data
+e_unknown_command (string_view cmd)
 {
   std::string msg{ "ERR unknown command '" };
   msg.append (cmd.data (), cmd.size ());
-  msg += "'";
+  msg.append ("'");
   return simple_error (std::move (msg));
 }
 
-static inline resp::data
-err_persistence (std::string msg)
+resp::data
+e_persistence (std::string msg)
 {
   std::string out{ "ERR " };
-  out += msg;
+  out.append (msg);
   return simple_error (std::move (out));
 }
 
+template <class Op>
 optional<std::int64_t>
-checked_add (std::int64_t lhs, std::int64_t rhs)
+checked_calc (std::int64_t lhs, std::int64_t rhs)
 {
+  static_assert (std::is_same<Op, std::plus<std::int64_t>>::value
+		     || std::is_same<Op, std::minus<std::int64_t>>::value,
+		 "checked_calc only supports plus/minus");
+
   const auto min = std::numeric_limits<std::int64_t>::min ();
   const auto max = std::numeric_limits<std::int64_t>::max ();
+  const bool is_sub = std::is_same<Op, std::minus<std::int64_t>>::value;
 
-  if (rhs > 0 && lhs > max - rhs)
-    return boost::none;
-  if (rhs < 0 && lhs < min - rhs)
-    return boost::none;
-
-  return lhs + rhs;
-}
-
-optional<std::int64_t>
-checked_sub (std::int64_t lhs, std::int64_t rhs)
-{
-  const auto min = std::numeric_limits<std::int64_t>::min ();
-  const auto max = std::numeric_limits<std::int64_t>::max ();
+  if (!is_sub)
+    {
+      if (rhs > 0 && lhs > max - rhs)
+	return boost::none;
+      if (rhs < 0 && lhs < min - rhs)
+	return boost::none;
+      return lhs + rhs;
+    }
 
   if (rhs > 0 && lhs < min + rhs)
     return boost::none;
   if (rhs < 0 && lhs > max + rhs)
     return boost::none;
-
   return lhs - rhs;
 }
 
-optional<std::int64_t>
-checked_calc (std::int64_t lhs, std::int64_t rhs, std::plus<std::int64_t>)
+std::int64_t
+to_int64 (std::size_t n)
 {
-  return checked_add (lhs, rhs);
+  auto max
+      = static_cast<std::size_t> (std::numeric_limits<std::int64_t>::max ());
+  if (n > max)
+    return std::numeric_limits<std::int64_t>::max ();
+  return static_cast<std::int64_t> (n);
 }
 
-optional<std::int64_t>
-checked_calc (std::int64_t lhs, std::int64_t rhs, std::minus<std::int64_t>)
+optional<std::size_t>
+normalize_lindex (std::int64_t index, std::size_t len)
 {
-  return checked_sub (lhs, rhs);
+  if (len == 0)
+    return boost::none;
+
+  auto len_i64 = to_int64 (len);
+  if (index >= 0)
+    {
+      if (index >= len_i64)
+	return boost::none;
+      return static_cast<std::size_t> (index);
+    }
+
+  auto normalized = len_i64 + index;
+  if (normalized < 0)
+    return boost::none;
+  return static_cast<std::size_t> (normalized);
 }
 
-} // namespace mini_redis
-
-namespace mini_redis
+optional<std::pair<std::size_t, std::size_t>>
+normalize_lrange (std::int64_t start, std::int64_t stop, std::size_t len)
 {
+  if (len == 0)
+    return boost::none;
+
+  auto len_i64 = to_int64 (len);
+
+  if (start < 0)
+    start += len_i64;
+  if (stop < 0)
+    stop += len_i64;
+
+  if (start < 0)
+    start = 0;
+  if (stop < 0)
+    return boost::none;
+  if (start >= len_i64)
+    return boost::none;
+  if (stop >= len_i64)
+    stop = len_i64 - 1;
+  if (start > stop)
+    return boost::none;
+
+  return std::pair<std::size_t, std::size_t>{
+    static_cast<std::size_t> (start), static_cast<std::size_t> (stop)
+  };
+}
+
+} // namespace
 
 processor::processor (config &cfg) : config_{ cfg } {}
 
@@ -145,39 +200,55 @@ processor::execute (resp::data resp)
 {
   typedef resp::data (processor::*exec_fn) ();
   static const unordered_flat_map<string_view, exec_fn> exec_map{
+    // Connection commands
     { "ping", &processor::exec_ping },
 
+    // Server commands
     { "save", &processor::exec_save },
     { "load", &processor::exec_load },
 
+    // String commands
     { "set", &processor::exec_set },
     { "get", &processor::exec_get },
-    { "del", &processor::exec_del },
-
-    { "expire", &processor::exec_expire },
-    { "pexpire", &processor::exec_pexpire },
-    { "expireat", &processor::exec_expireat },
-    { "pexpireat", &processor::exec_pexpireat },
-
-    { "ttl", &processor::exec_ttl },
-    { "pttl", &processor::exec_pttl },
-
     { "incr", &processor::exec_incr },
     { "incrby", &processor::exec_incrby },
     { "decr", &processor::exec_decr },
     { "decrby", &processor::exec_decrby },
+
+    // Generic commands
+    { "del", &processor::exec_del },
+    { "expire", &processor::exec_expire },
+    { "pexpire", &processor::exec_pexpire },
+    { "expireat", &processor::exec_expireat },
+    { "pexpireat", &processor::exec_pexpireat },
+    { "ttl", &processor::exec_ttl },
+    { "pttl", &processor::exec_pttl },
+
+    // List commands
+    { "llen", &processor::exec_llen },
+    { "lindex", &processor::exec_lindex },
+    { "lrange", &processor::exec_lrange },
+
+    { "lset", &processor::exec_lset },
+    { "lrem", &processor::exec_lrem },
+    { "linsert", &processor::exec_linsert },
+
+    { "lpush", &processor::exec_lpush },
+    { "rpush", &processor::exec_rpush },
+    { "lpop", &processor::exec_lpop },
+    { "rpop", &processor::exec_rpop },
   };
 
   if (!resp.is<resp::array> ())
-    return err_protocol ();
+    return e_protocol;
 
   auto &arr = resp.get<resp::array> ();
   if (!arr.has_value ())
-    return err_protocol ();
+    return e_protocol;
 
   auto &vec = arr.value ();
   if (vec.empty ())
-    return err_protocol ();
+    return e_protocol;
 
   bool all_str = true;
   for (const auto &v : vec)
@@ -190,7 +261,7 @@ processor::execute (resp::data resp)
 	}
     }
   if (!all_str)
-    return err_protocol ();
+    return e_protocol;
 
   args_.clear ();
   args_.reserve (vec.size () - 1);
@@ -202,12 +273,13 @@ processor::execute (resp::data resp)
   boost::to_lower (cmd);
   auto it = exec_map.find (cmd);
   if (it == exec_map.end ())
-    return err_unknown_command (cmd_raw);
+    return e_unknown_command (cmd_raw);
 
   auto fn = it->second;
   return (this->*fn) ();
 }
 
+// Connection commands
 resp::data
 processor::exec_ping ()
 {
@@ -226,33 +298,36 @@ processor::exec_ping ()
       return bulk_string (std::move (args_[0]));
 
     default:
-      return err_wrong_num_args ("ping");
+      return e_wrong_num_args ("ping");
     }
 }
 
+// Server commands
 resp::data
 processor::exec_save ()
 {
-  // SAVE
-  // SAVE TO path
+  // SAVE [TO path]
+
+  // RETURN:
+  // - simple string: OK.
 
   std::string path{ default_dump_path };
   if (!args_.empty ())
     {
       if (args_.size () != 2)
-	return err_syntax ();
+	return e_syntax;
 
       auto opt = args_[0];
       boost::to_lower (opt);
       if (opt != "to")
-	return err_syntax ();
+	return e_syntax;
 
       path = std::move (args_[1]);
     }
 
   auto ret = db::save_to (path, storage_.create_snapshot ());
   if (!ret.has_value ())
-    return err_persistence (ret.error ());
+    return e_persistence (ret.error ());
 
   return simple_string ("OK");
 }
@@ -260,19 +335,21 @@ processor::exec_save ()
 resp::data
 processor::exec_load ()
 {
-  // LOAD
-  // LOAD FROM path
+  // LOAD [FROM path]
+
+  // RETURN:
+  // - simple string: OK.
 
   std::string path{ default_dump_path };
   if (!args_.empty ())
     {
       if (args_.size () != 2)
-	return err_syntax ();
+	return e_syntax;
 
       auto opt = args_[0];
       boost::to_lower (opt);
       if (opt != "from")
-	return err_syntax ();
+	return e_syntax;
 
       path = std::move (args_[1]);
     }
@@ -280,12 +357,13 @@ processor::exec_load ()
   db::snapshot snap;
   auto res = db::load_from (path, snap);
   if (!res.has_value ())
-    return err_persistence (res.error ());
+    return e_persistence (res.error ());
 
   storage_.replace_with_snapshot (std::move (snap));
   return simple_string ("OK");
 }
 
+// String commands
 resp::data
 processor::exec_set ()
 {
@@ -304,7 +382,7 @@ processor::exec_set ()
   //                  key was not set. Otherwise, the key was set.
 
   if (args_.size () < 2)
-    return err_wrong_num_args ("set");
+    return e_wrong_num_args ("set");
 
   bool nx = false;
   bool xx = false;
@@ -323,31 +401,31 @@ processor::exec_set ()
       if (str == "nx")
 	{
 	  if (nx || xx)
-	    return err_syntax ();
+	    return e_syntax;
 	  nx = true;
 	}
       else if (str == "xx")
 	{
 	  if (nx || xx)
-	    return err_syntax ();
+	    return e_syntax;
 	  xx = true;
 	}
       else if (str == "get")
 	{
 	  if (get)
-	    return err_syntax ();
+	    return e_syntax;
 	  get = true;
 	}
       else if (str == "keepttl")
 	{
 	  if (ex || px || exat || pxat || keepttl)
-	    return err_syntax ();
+	    return e_syntax;
 	  keepttl = true;
 	}
       else if (str == "ex" || str == "px" || str == "exat" || str == "pxat")
 	{
 	  if (ex || px || exat || pxat || keepttl)
-	    return err_syntax ();
+	    return e_syntax;
 
 	  if (str == "ex")
 	    ex = true;
@@ -359,14 +437,14 @@ processor::exec_set ()
 	    pxat = true;
 
 	  if (++i >= args_.size ())
-	    return err_syntax ();
+	    return e_syntax;
 
 	  const auto &num = args_[i];
 	  if (!try_lexical_convert (num, n) || n <= 0)
-	    return err_bad_integer ();
+	    return e_bad_integer;
 	}
       else
-	return err_syntax ();
+	return e_syntax;
     }
 
   auto &key = args_[0];
@@ -388,7 +466,7 @@ processor::exec_set ()
 	  old = bulk_string (lexical_cast<std::string> (num));
 	}
       else
-	return err_wrong_type ();
+	return e_wrong_type;
     }
 
   if (nx && exists)
@@ -430,7 +508,7 @@ processor::exec_get ()
   // - nil: if the key does not exist.
 
   if (args_.size () != 1)
-    return err_wrong_num_args ("get");
+    return e_wrong_num_args ("get");
 
   const auto &key = args_[0];
 
@@ -451,9 +529,117 @@ processor::exec_get ()
       return bulk_string (std::move (str));
     }
 
-  return err_wrong_type ();
+  return e_wrong_type;
 }
 
+resp::data
+processor::exec_incr ()
+{
+  // INCR key
+
+  // RETURN:
+  // - integer: the value of the key after the increment.
+
+  return calc_impl<std::plus> ("incr", false);
+}
+
+resp::data
+processor::exec_incrby ()
+{
+  // INCRBY key increment
+
+  // RETURN:
+  // - integer: the value of the key after the increment.
+
+  return calc_impl<std::plus> ("incrby", true);
+}
+
+resp::data
+processor::exec_decr ()
+{
+  // DECR key
+
+  // RETURN:
+  // - integer: the value of the key after decrementing it.
+
+  return calc_impl<std::minus> ("decr", false);
+}
+
+resp::data
+processor::exec_decrby ()
+{
+  // DECRBY key decrement
+
+  // RETURN:
+  // - integer: the value of the key after decrementing it.
+
+  return calc_impl<std::minus> ("decrby", true);
+}
+
+template <template <class> class Op>
+resp::data
+processor::calc_impl (string_view cmd, bool with_rhs)
+{
+  if ((!with_rhs && args_.size () != 1) || (with_rhs && args_.size () != 2))
+    return e_wrong_num_args (cmd);
+
+  auto &key = args_[0];
+  std::int64_t rhs = 1;
+  if (with_rhs)
+    {
+      const auto &num = args_[1];
+      if (!try_lexical_convert (num, rhs))
+	return e_bad_integer;
+    }
+
+  auto calc = [rhs] (std::int64_t lhs) -> optional<std::int64_t>
+    { return checked_calc<Op<std::int64_t>> (lhs, rhs); };
+
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    {
+      auto opt_n = calc (0);
+      if (!opt_n.has_value ())
+	return e_overflow;
+
+      auto n = opt_n.value ();
+      db::data data{ db::integer{ n } };
+      storage_.insert (std::move (key), std::move (data));
+      return integer (n);
+    }
+
+  auto it = opt_it.value ();
+  auto &data = it->second;
+  if (data.is<db::integer> ())
+    {
+      auto &n = data.get<db::integer> ();
+      auto opt_n = calc (n);
+      if (!opt_n.has_value ())
+	return e_overflow;
+
+      n = opt_n.value ();
+      return integer (n);
+    }
+  else if (data.is<db::string> ())
+    {
+      std::int64_t n;
+      const auto &num = data.get<db::string> ();
+      if (!try_lexical_convert (num, n))
+	return e_bad_integer;
+
+      auto opt_n = calc (n);
+      if (!opt_n.has_value ())
+	return e_overflow;
+
+      n = opt_n.value ();
+      data = db::data{ db::integer{ n } };
+      return integer (n);
+    }
+  else
+    return e_wrong_type;
+}
+
+// Generic commands
 resp::data
 processor::exec_del ()
 {
@@ -463,7 +649,7 @@ processor::exec_del ()
   // - integer: the number of keys that were removed.
 
   if (args_.size () < 1)
-    return err_wrong_num_args ("del");
+    return e_wrong_num_args ("del");
 
   std::int64_t n = 0;
   for (const auto &key : args_)
@@ -540,7 +726,7 @@ resp::data
 processor::expire_impl (string_view cmd)
 {
   if (args_.size () != 2 && args_.size () != 3)
-    return err_wrong_num_args (cmd);
+    return e_wrong_num_args (cmd);
 
   enum
   {
@@ -565,13 +751,13 @@ processor::expire_impl (string_view cmd)
       else if (opt == "lt")
 	cond = cond_lt;
       else
-	return err_syntax ();
+	return e_syntax;
     }
 
   std::int64_t n;
   const auto &num = args_[1];
   if (!try_lexical_convert (num, n))
-    return err_bad_integer ();
+    return e_bad_integer;
 
   const auto &key = args_[0];
   auto opt_it = storage_.find (key);
@@ -666,7 +852,7 @@ resp::data
 processor::ttl_impl (string_view cmd)
 {
   if (args_.size () != 1)
-    return err_wrong_num_args (cmd);
+    return e_wrong_num_args (cmd);
 
   const auto &key = args_[0];
   auto opt_it = storage_.find (key);
@@ -690,111 +876,476 @@ processor::ttl_impl (string_view cmd)
   return integer (n);
 }
 
+// List commands
 resp::data
-processor::exec_incr ()
+processor::exec_llen ()
 {
-  // INCR key
+  // LLEN key
 
   // RETURN:
-  // - integer: the value of the key after the increment.
+  // - integer: the length of the list.
 
-  return calc_impl<std::plus> ("incr", false);
-}
+  if (args_.size () != 1)
+    return e_wrong_num_args ("llen");
 
-resp::data
-processor::exec_incrby ()
-{
-  // INCRBY key increment
-
-  // RETURN:
-  // - integer: the value of the key after the increment.
-
-  return calc_impl<std::plus> ("incrby", true);
-}
-
-resp::data
-processor::exec_decr ()
-{
-  // DECR key
-
-  // RETURN:
-  // - integer: the value of the key after decrementing it.
-
-  return calc_impl<std::minus> ("decr", false);
-}
-
-resp::data
-processor::exec_decrby ()
-{
-  // DECRBY key decrement
-
-  // RETURN:
-  // - integer: the value of the key after decrementing it.
-
-  return calc_impl<std::minus> ("decrby", true);
-}
-
-template <template <class> class Op>
-resp::data
-processor::calc_impl (string_view cmd, bool with_rhs)
-{
-  if ((!with_rhs && args_.size () != 1) || (with_rhs && args_.size () != 2))
-    return err_wrong_num_args (cmd);
-
-  auto &key = args_[0];
-  std::int64_t rhs = 1;
-  if (with_rhs)
-    {
-      const auto &num = args_[1];
-      if (!try_lexical_convert (num, rhs))
-	return err_bad_integer ();
-    }
-
-  auto calc = [rhs] (std::int64_t lhs) -> optional<std::int64_t>
-    { return checked_calc (lhs, rhs, Op<std::int64_t>{}); };
-
+  const auto &key = args_[0];
   auto opt_it = storage_.find (key);
   if (!opt_it.has_value ())
-    {
-      auto opt_n = calc (0);
-      if (!opt_n.has_value ())
-	return err_overflow ();
+    return integer (0);
 
-      auto n = opt_n.value ();
-      db::data data{ db::integer{ n } };
-      storage_.insert (std::move (key), std::move (data));
-      return integer (n);
-    }
+  const auto &data = opt_it.value ()->second;
+  if (!data.is<db::list> ())
+    return e_wrong_type;
+
+  return integer (to_int64 (data.get<db::list> ().size ()));
+}
+
+resp::data
+processor::exec_lindex ()
+{
+  // LINDEX key index
+
+  // RETURN:
+  // - nil: when index is out of range.
+  // - bulk string: the requested element.
+
+  if (args_.size () != 2)
+    return e_wrong_num_args ("lindex");
+
+  std::int64_t index;
+  if (!try_lexical_convert (args_[1], index))
+    return e_bad_integer;
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return null_bulk_string ();
+
+  const auto &data = opt_it.value ()->second;
+  if (!data.is<db::list> ())
+    return e_wrong_type;
+
+  const auto &ls = data.get<db::list> ();
+  auto opt_pos = normalize_lindex (index, ls.size ());
+  if (!opt_pos.has_value ())
+    return null_bulk_string ();
+
+  return bulk_string (ls[opt_pos.value ()]);
+}
+
+resp::data
+processor::exec_lrange ()
+{
+  // LRANGE key start stop
+
+  // RETURN:
+  // - array: a list of elements in the specified range,
+  //          or an empty array if the key doesn't exist.
+
+  if (args_.size () != 3)
+    return e_wrong_num_args ("lrange");
+
+  std::int64_t start;
+  std::int64_t stop;
+  if (!try_lexical_convert (args_[1], start)
+      || !try_lexical_convert (args_[2], stop))
+    return e_bad_integer;
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return empty_array ();
+
+  const auto &data = opt_it.value ()->second;
+  if (!data.is<db::list> ())
+    return e_wrong_type;
+
+  const auto &ls = data.get<db::list> ();
+  auto range = normalize_lrange (start, stop, ls.size ());
+  if (!range.has_value ())
+    return empty_array ();
+
+  const auto first = range.value ().first;
+  const auto last = range.value ().second;
+  std::vector<resp::data> out;
+  out.reserve (last - first + 1);
+  for (auto i = first; i <= last; i++)
+    out.push_back (bulk_string (ls[i]));
+
+  return array (std::move (out));
+}
+
+resp::data
+processor::exec_lset ()
+{
+  // LSET key index element
+
+  // RETURN:
+  // - simple string: OK.
+
+  if (args_.size () != 3)
+    return e_wrong_num_args ("lset");
+
+  std::int64_t index;
+  if (!try_lexical_convert (args_[1], index))
+    return e_bad_integer;
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return e_no_such_key;
 
   auto it = opt_it.value ();
   auto &data = it->second;
-  if (data.is<db::integer> ())
-    {
-      auto &n = data.get<db::integer> ();
-      auto opt_n = calc (n);
-      if (!opt_n.has_value ())
-	return err_overflow ();
+  if (!data.is<db::list> ())
+    return e_wrong_type;
 
-      n = opt_n.value ();
-      return integer (n);
+  auto &ls = data.get<db::list> ();
+  auto opt_pos = normalize_lindex (index, ls.size ());
+  if (!opt_pos.has_value ())
+    return e_index_out_of_range;
+
+  ls[opt_pos.value ()] = std::move (args_[2]);
+  return simple_string ("OK");
+}
+
+resp::data
+processor::exec_lrem ()
+{
+  // LREM key count element
+
+  // RETURN:
+  // - integer: the number of removed elements.
+
+  if (args_.size () != 3)
+    return e_wrong_num_args ("lrem");
+
+  std::int64_t count;
+  if (!try_lexical_convert (args_[1], count))
+    return e_bad_integer;
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return integer (0);
+
+  auto it = opt_it.value ();
+  auto &data = it->second;
+  if (!data.is<db::list> ())
+    return e_wrong_type;
+
+  const auto &element = args_[2];
+  auto &ls = data.get<db::list> ();
+
+  std::int64_t removed = 0;
+  if (count == 0)
+    {
+      for (auto iter = ls.begin (); iter != ls.end ();)
+	{
+	  if (*iter == element)
+	    {
+	      iter = ls.erase (iter);
+	      removed++;
+	    }
+	  else
+	    ++iter;
+	}
     }
-  else if (data.is<db::string> ())
+  else if (count > 0)
     {
-      std::int64_t n;
-      const auto &num = data.get<db::string> ();
-      if (!try_lexical_convert (num, n))
-	return err_bad_integer ();
-
-      auto opt_n = calc (n);
-      if (!opt_n.has_value ())
-	return err_overflow ();
-
-      n = opt_n.value ();
-      data = db::data{ db::integer{ n } };
-      return integer (n);
+      for (auto iter = ls.begin (); iter != ls.end () && removed < count;)
+	{
+	  if (*iter == element)
+	    {
+	      iter = ls.erase (iter);
+	      removed++;
+	    }
+	  else
+	    ++iter;
+	}
     }
   else
-    return err_wrong_type ();
+    {
+      auto limit = count == std::numeric_limits<std::int64_t>::min ()
+		       ? std::numeric_limits<std::int64_t>::max ()
+		       : -count;
+
+      for (auto iter = ls.end (); iter != ls.begin () && removed < limit;)
+	{
+	  --iter;
+	  if (*iter == element)
+	    {
+	      iter = ls.erase (iter);
+	      removed++;
+	    }
+	}
+    }
+
+  if (ls.empty ())
+    storage_.erase (it);
+
+  return integer (removed);
+}
+
+resp::data
+processor::exec_linsert ()
+{
+  // LINSERT key <BEFORE | AFTER> pivot element
+
+  // RETURN:
+  // - integer: the list length after a successful insert operation.
+  // - integer: 0 when the key doesn't exist.
+  // - integer: -1 when the pivot wasn't found.
+
+  if (args_.size () != 4)
+    return e_wrong_num_args ("linsert");
+
+  auto where = args_[1];
+  boost::to_lower (where);
+
+  bool before = false;
+  if (where == "before")
+    before = true;
+  else if (where != "after")
+    return e_syntax;
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return integer (0);
+
+  auto it = opt_it.value ();
+  auto &data = it->second;
+  if (!data.is<db::list> ())
+    return e_wrong_type;
+
+  auto &ls = data.get<db::list> ();
+
+  auto pos = ls.end ();
+  for (auto iter = ls.begin (); iter != ls.end (); ++iter)
+    if (*iter == args_[2])
+      {
+	pos = iter;
+	break;
+      }
+
+  if (pos == ls.end ())
+    return integer (-1);
+
+  if (!before)
+    ++pos;
+  ls.insert (pos, std::move (args_[3]));
+  return integer (to_int64 (ls.size ()));
+}
+
+resp::data
+processor::exec_lpush ()
+{
+  // LPUSH key element [element ...]
+
+  // RETURN:
+  // - integer: the length of the list after the push operation.
+
+  if (args_.size () < 2)
+    return e_wrong_num_args ("lpush");
+
+  auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+
+  db::storage::iterator it;
+  if (!opt_it.has_value ())
+    {
+      db::data data{ db::list{} };
+      it = storage_.insert (std::move (key), std::move (data));
+    }
+  else
+    {
+      it = opt_it.value ();
+      if (!it->second.is<db::list> ())
+	return e_wrong_type;
+    }
+
+  auto &ls = it->second.get<db::list> ();
+  for (std::size_t i = 1; i < args_.size (); i++)
+    ls.push_front (std::move (args_[i]));
+
+  return integer (to_int64 (ls.size ()));
+}
+
+resp::data
+processor::exec_rpush ()
+{
+  // RPUSH key element [element ...]
+
+  // RETURN:
+  // - integer: the length of the list after the push operation.
+
+  if (args_.size () < 2)
+    return e_wrong_num_args ("rpush");
+
+  auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+
+  db::storage::iterator it;
+  if (!opt_it.has_value ())
+    {
+      db::data data{ db::list{} };
+      it = storage_.insert (std::move (key), std::move (data));
+    }
+  else
+    {
+      it = opt_it.value ();
+      if (!it->second.is<db::list> ())
+	return e_wrong_type;
+    }
+
+  auto &ls = it->second.get<db::list> ();
+  for (std::size_t i = 1; i < args_.size (); i++)
+    ls.push_back (std::move (args_[i]));
+
+  return integer (to_int64 (ls.size ()));
+}
+
+resp::data
+processor::exec_lpop ()
+{
+  // LPOP key [count]
+
+  // RETURN:
+  // - nil if the key does not exist.
+  // - bulk string: when called without the count argument,
+  //                the value of the first element.
+  // - array: when called with the count argument,
+  //          a list of popped elements.
+
+  if (args_.size () != 1 && args_.size () != 2)
+    return e_wrong_num_args ("lpop");
+
+  bool with_count = args_.size () == 2;
+  std::int64_t count = 1;
+  if (with_count)
+    {
+      if (!try_lexical_convert (args_[1], count))
+	return e_bad_integer;
+      if (count <= 0)
+	return e_value_out_of_range_positive;
+    }
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return with_count ? null_array () : null_bulk_string ();
+
+  auto it = opt_it.value ();
+  auto &data = it->second;
+  if (!data.is<db::list> ())
+    return e_wrong_type;
+
+  auto &ls = data.get<db::list> ();
+  if (!with_count)
+    {
+      if (ls.empty ())
+	{
+	  storage_.erase (it);
+	  return null_bulk_string ();
+	}
+
+      std::string out = std::move (ls.front ());
+      ls.pop_front ();
+      if (ls.empty ())
+	storage_.erase (it);
+      return bulk_string (std::move (out));
+    }
+
+  if (ls.empty ())
+    {
+      storage_.erase (it);
+      return null_array ();
+    }
+
+  std::vector<resp::data> out;
+  while (count > 0 && !ls.empty ())
+    {
+      std::string val = std::move (ls.front ());
+      ls.pop_front ();
+      out.push_back (bulk_string (std::move (val)));
+      count--;
+    }
+
+  if (ls.empty ())
+    storage_.erase (it);
+  return array (std::move (out));
+}
+
+resp::data
+processor::exec_rpop ()
+{
+  // RPOP key [count]
+
+  // RETURN:
+  // - nil if the key does not exist.
+  // - bulk string: when called without the count argument,
+  //                the value of the first element.
+  // - array: when called with the count argument,
+  //          a list of popped elements.
+
+  if (args_.size () != 1 && args_.size () != 2)
+    return e_wrong_num_args ("rpop");
+
+  bool with_count = args_.size () == 2;
+  std::int64_t count = 1;
+  if (with_count)
+    {
+      if (!try_lexical_convert (args_[1], count))
+	return e_bad_integer;
+      if (count <= 0)
+	return e_value_out_of_range_positive;
+    }
+
+  const auto &key = args_[0];
+  auto opt_it = storage_.find (key);
+  if (!opt_it.has_value ())
+    return with_count ? null_array () : null_bulk_string ();
+
+  auto it = opt_it.value ();
+  auto &data = it->second;
+  if (!data.is<db::list> ())
+    return e_wrong_type;
+
+  auto &ls = data.get<db::list> ();
+  if (!with_count)
+    {
+      if (ls.empty ())
+	{
+	  storage_.erase (it);
+	  return null_bulk_string ();
+	}
+
+      std::string out = std::move (ls.back ());
+      ls.pop_back ();
+      if (ls.empty ())
+	storage_.erase (it);
+      return bulk_string (std::move (out));
+    }
+
+  if (ls.empty ())
+    {
+      storage_.erase (it);
+      return null_array ();
+    }
+
+  std::vector<resp::data> out;
+  while (count > 0 && !ls.empty ())
+    {
+      std::string val = std::move (ls.back ());
+      ls.pop_back ();
+      out.push_back (bulk_string (std::move (val)));
+      count--;
+    }
+
+  if (ls.empty ())
+    storage_.erase (it);
+  return array (std::move (out));
 }
 
 } // namespace mini_redis

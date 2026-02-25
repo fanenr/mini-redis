@@ -7,9 +7,13 @@ FEATURES
 --------
 
 * Fully implements the RESP2 protocol.
-* Supported Redis commands(16):
-	PING, SAVE, LOAD, SET, GET, DEL, EXPIRE, PEXPIRE, EXPIREAT, PEXPIREAT,
-	TTL, PTTL, INCR, INCRBY, DECR, DECRBY
+* Supported Redis commands(26):
+	* Connection: PING
+	* Server: SAVE, LOAD
+	* String: SET, GET, INCR, INCRBY, DECR, DECRBY
+	* Generic: DEL, EXPIRE, PEXPIRE, EXPIREAT, PEXPIREAT, TTL, PTTL
+	* List: LLEN, LINDEX, LRANGE, LSET, LREM, LINSERT, LPUSH, RPUSH,
+	        LPOP, RPOP
 
 PERSISTENCE
 -----------
@@ -25,14 +29,37 @@ PERSISTENCE
 DEPENDENCIES
 ------------
 
+BUILD:
+
 * A C++ compiler supporting the C++11 standard.
 * Boost Library installed on the system.
+
+TEST (OPTIONAL):
+
+* Python and pip.
 
 BUILD
 -----
 
 	$ cmake -B build
 	$ cmake --build build
+
+TEST
+----
+
+1. In the `tests' directory, run:
+
+	$ python -m venv .venv
+	$ .venv/bin/python -m pip install -U pip
+	$ .venv/bin/python -m pip install -r requirements.txt
+
+2. In the project root directory, run:
+
+	$ make test
+
+   Or, in the `tests' directory, run:
+
+	$ .venv/bin/python -m pytest -q functional
 
 RUN
 ---
