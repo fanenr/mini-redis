@@ -49,12 +49,9 @@ server::start_accept ()
   auto accept_cb = [this] (const error_code &ec, tcp::socket sock)
     {
       if (ec)
-	{
-	  this->stop ();
-	  return;
-	}
+	return this->stop ();
       session::make (std::move (sock), manager_)->start ();
-      this->start_accept ();
+      start_accept ();
     };
   acceptor_.async_accept (accept_cb);
 }

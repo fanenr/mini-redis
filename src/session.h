@@ -30,14 +30,19 @@ private:
 private:
   enum
   {
-    normal = 0,
-    close_after_send = 1,
+    normal,
+    closed,
+    close_after_send,
   };
 
   int state_;
   tcp::socket socket_;
+  asio::strand<asio::any_io_executor> strand_;
+
+  milliseconds idle_timeout_;
   std::uint64_t idle_timer_gen_;
   asio::steady_timer idle_timer_;
+
   std::vector<resp::data> results_;
   std::array<char, 4096> recv_buffer_;
   std::vector<std::string> send_buffers_;

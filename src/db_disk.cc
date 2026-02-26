@@ -400,13 +400,12 @@ result_type
 parse_body (string_view body, snapshot &out)
 {
   resp::parser parser{ {} };
-  parser.append_chunk (body);
+  parser.append (body);
   parser.parse ();
 
-  if (parser.has_protocol_error ())
+  if (parser.has_error ())
     {
-      std::string s;
-      parser.take_protocol_error (s);
+      std::string s = parser.pop_error ();
       if (s.empty ())
 	return "load failed: invalid RESP payload";
       return "load failed: " + s;
@@ -414,7 +413,7 @@ parse_body (string_view body, snapshot &out)
   if (parser.available_data () != 1)
     return "load failed: invalid snapshot payload";
 
-  auto root = parser.pop ();
+  auto root = parser.pop_data ();
   auto p = root.get_if<resp::array> ();
   if (p == nullptr || !p->has_value ())
     return "load failed: snapshot root is not an array";

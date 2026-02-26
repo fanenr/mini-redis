@@ -28,6 +28,7 @@ get_conn_idle_timeout (const config &cfg)
       std::numeric_limits<milliseconds::rep>::max ());
   if (ms > max)
     ms = max;
+
   return milliseconds{ ms };
 }
 
@@ -40,8 +41,10 @@ session::make (tcp::socket sock, manager &mgr)
 }
 
 session::session (tcp::socket sock, manager &mgr)
-    : state_{ normal }, socket_{ std::move (sock) }, idle_timer_gen_{ 0 },
-      idle_timer_{ socket_.get_executor () }, manager_{ mgr },
+    : state_{ normal }, socket_{ std::move (sock) },
+      strand_{ socket_.get_executor () },
+      idle_timeout_{ get_conn_idle_timeout (mgr.get_config ()) },
+      idle_timer_{ strand_ }, manager_{ mgr },
       parser_{ make_parser_config (mgr.get_config ()) }
 {
 }
@@ -49,99 +52,118 @@ session::session (tcp::socket sock, manager &mgr)
 void
 session::start ()
 {
-  refresh_idle_timeout ();
-  start_recv ();
+  auto self = shared_from_this ();
+  auto start_cb = [self] ()
+    {
+      BOOST_ASSERT (self->strand_.running_in_this_thread ());
+      self->refresh_idle_timeout ();
+      self->start_recv ();
+    };
+  asio::dispatch (strand_, start_cb);
 }
 
 void
 session::refresh_idle_timeout ()
 {
-  auto timeout = get_conn_idle_timeout (manager_.get_config ());
-  if (timeout == milliseconds::zero ())
+  BOOST_ASSERT (strand_.running_in_this_thread ());
+  if (state_ == closed)
     return;
 
-  ++idle_timer_gen_;
-  auto gen = idle_timer_gen_;
-
-  idle_timer_.expires_after (timeout);
-
-  auto self = shared_from_this ();
-  auto wait_cb = [self, gen] (const error_code &ec)
+  if (idle_timeout_ != milliseconds::zero ())
     {
-      if (!ec && gen == self->idle_timer_gen_)
-	self->close ();
-    };
-  idle_timer_.async_wait (wait_cb);
+      ++idle_timer_gen_;
+      auto gen = idle_timer_gen_;
+      idle_timer_.expires_after (idle_timeout_);
+
+      auto self = shared_from_this ();
+      auto wait_cb = [self, gen] (const error_code &ec)
+	{
+	  BOOST_ASSERT (self->strand_.running_in_this_thread ());
+	  if (!ec && gen == self->idle_timer_gen_)
+	    self->close ();
+	};
+      idle_timer_.async_wait (asio::bind_executor (strand_, wait_cb));
+    }
 }
 
 void
 session::start_recv ()
 {
+  BOOST_ASSERT (strand_.running_in_this_thread ());
+  if (state_ == closed)
+    return;
+
   auto self = shared_from_this ();
   auto receive_cb = [self] (const error_code &ec, std::size_t n)
     {
+      BOOST_ASSERT (self->strand_.running_in_this_thread ());
       if (ec)
-	{
-	  self->close ();
-	  return;
-	}
+	return self->close ();
+
       self->refresh_idle_timeout ();
-      self->parser_.append_chunk ({ self->recv_buffer_.data (), n });
+      self->parser_.append ({ self->recv_buffer_.data (), n });
       self->parser_.parse ();
       self->process ();
     };
-  socket_.async_receive (asio::buffer (recv_buffer_), receive_cb);
+  socket_.async_receive (asio::buffer (recv_buffer_),
+			 asio::bind_executor (strand_, receive_cb));
 }
 
 void
 session::process ()
 {
+  BOOST_ASSERT (strand_.running_in_this_thread ());
+
   if (!parser_.has_data ())
     {
-      if (parser_.has_protocol_error ())
+      if (parser_.has_error ())
 	{
-	  std::string msg;
-	  if (!parser_.take_protocol_error (msg))
-	    msg = "ERR Protocol error: invalid request";
-
 	  results_.clear ();
-	  results_.push_back (resp::simple_error{ std::move (msg) });
+	  results_.push_back (resp::simple_error{ parser_.pop_error () });
 	  state_ = close_after_send;
-	  start_send ();
-	  return;
+	  return start_send ();
 	}
-
-      start_recv ();
-      return;
+      return start_recv ();
     }
 
-  results_.clear ();
-  results_.reserve (parser_.available_data () + 1);
+  auto requests = std::make_shared<std::vector<resp::data>> ();
+  requests->reserve (parser_.available_data ());
+  while (parser_.has_data ())
+    requests->push_back (parser_.pop_data ());
 
-  std::string err_msg;
-  bool has_err = parser_.take_protocol_error (err_msg);
+  auto parse_error = std::make_shared<optional<std::string>> ();
+  if (parser_.has_error ())
+    *parse_error = parser_.pop_error ();
 
   auto self = shared_from_this ();
-  auto task = [self, has_err, err_msg] (processor *pro)
+  auto task = [self, requests, parse_error] (processor *pro)
     {
-      while (self->parser_.has_data ())
+      auto responses = std::make_shared<std::vector<resp::data>> ();
+      responses->reserve (requests->size ()
+			  + (parse_error->has_value () ? 1 : 0));
+      for (auto &i : *requests)
+	responses->push_back (pro->execute (std::move (i)));
+
+      bool should_close = false;
+      if (parse_error->has_value ())
 	{
-	  auto cmd = self->parser_.pop ();
-	  auto res = pro->execute (std::move (cmd));
-	  self->results_.push_back (std::move (res));
+	  responses->push_back (
+	      resp::simple_error{ std::move (parse_error->value ()) });
+	  should_close = true;
 	}
 
-      if (has_err)
-	self->results_.push_back (resp::simple_error{ std::move (err_msg) });
-
-      auto start_send = [self, has_err] ()
+      auto send_task = [self, responses, should_close] ()
 	{
-	  if (has_err)
+	  BOOST_ASSERT (self->strand_.running_in_this_thread ());
+	  if (self->state_ == closed)
+	    return;
+
+	  self->results_.swap (*responses);
+	  if (should_close)
 	    self->state_ = close_after_send;
 	  self->start_send ();
 	};
-      auto ex = self->socket_.get_executor ();
-      asio::post (ex, start_send);
+      asio::post (self->strand_, send_task);
     };
   manager_.post (task);
 }
@@ -149,44 +171,52 @@ session::process ()
 void
 session::start_send ()
 {
+  BOOST_ASSERT (strand_.running_in_this_thread ());
+  if (state_ == closed)
+    return;
+
   send_buffers_.clear ();
   send_buffers_.reserve (results_.size ());
-  for (const auto &r : results_)
-    send_buffers_.push_back (r.encode ());
+  for (const auto &i : results_)
+    send_buffers_.push_back (i.encode ());
 
   std::vector<asio::const_buffer> bufs;
   bufs.reserve (send_buffers_.size ());
-  for (const auto &s : send_buffers_)
-    bufs.push_back (asio::buffer (s));
+  for (const auto &i : send_buffers_)
+    bufs.push_back (asio::buffer (i));
 
   auto self = shared_from_this ();
   auto write_cb = [self] (const error_code &ec, std::size_t)
     {
+      BOOST_ASSERT (self->strand_.running_in_this_thread ());
       if (ec)
-	{
-	  self->close ();
-	  return;
-	}
-
+	return self->close ();
       if (self->state_ == close_after_send)
-	{
-	  self->close ();
-	  return;
-	}
+	return self->close ();
 
       self->refresh_idle_timeout ();
       self->start_recv ();
     };
-  asio::async_write (socket_, bufs, write_cb);
+  asio::async_write (socket_, bufs, asio::bind_executor (strand_, write_cb));
 }
 
 void
 session::close ()
 {
-  idle_timer_.cancel ();
-  error_code ec;
-  auto r = socket_.close (ec);
-  (void) r;
+  auto self = shared_from_this ();
+  auto task = [self] ()
+    {
+      BOOST_ASSERT (self->strand_.running_in_this_thread ());
+      if (self->state_ != closed)
+	{
+	  self->idle_timer_.cancel ();
+	  error_code ec;
+	  auto r = self->socket_.close (ec);
+	  (void) r;
+	  self->state_ = closed;
+	}
+    };
+  asio::dispatch (strand_, task);
 }
 
 } // namespace mini_redis

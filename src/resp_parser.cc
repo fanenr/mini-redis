@@ -8,7 +8,7 @@ namespace resp
 parser::parser (config cfg) : config_{ std::move (cfg) } {}
 
 void
-parser::append_chunk (string_view chk)
+parser::append (string_view chk)
 {
   buffer_.append (chk.data (), chk.size ());
 }
@@ -23,14 +23,6 @@ parser::parse ()
   return results_.size () - before;
 }
 
-data
-parser::pop ()
-{
-  auto resp = std::move (results_.front ());
-  results_.pop_front ();
-  return resp;
-}
-
 std::size_t
 parser::available_data () const
 {
@@ -43,29 +35,34 @@ parser::has_data () const
   return !results_.empty ();
 }
 
-bool
-parser::has_protocol_error () const
+data
+parser::pop_data ()
 {
-  return protocol_error_;
+  auto res = std::move (results_.front ());
+  results_.pop_front ();
+  return res;
 }
 
 bool
-parser::take_protocol_error (std::string &out)
+parser::has_error () const
 {
-  if (!protocol_error_)
-    return false;
+  return error_.has_value ();
+}
 
-  out = std::move (protocol_error_msg_);
-  protocol_error_msg_.clear ();
-  protocol_error_ = false;
-  return true;
+std::string
+parser::pop_error ()
+{
+  auto msg = std::move (error_.value ());
+  error_ = boost::none;
+  return msg;
 }
 
 bool
 parser::try_parse ()
 {
-  if (protocol_error_)
+  if (has_error ())
     return false;
+
   if (config_.max_inline_len != 0)
     {
       auto pos = find_crlf ();
@@ -148,8 +145,7 @@ parser::push_value (data resp)
 void
 parser::protocol_error (string_view msg)
 {
-  protocol_error_ = true;
-  protocol_error_msg_.assign (msg.data (), msg.size ());
+  error_ = msg.to_string ();
   frames_.clear ();
   buffer_.clear ();
 }
@@ -187,17 +183,17 @@ parser::parse_simple_error (optional<data> &out)
 std::size_t
 parser::parse_bulk_string (optional<data> &out)
 {
-  auto pos1 = find_crlf ();
-  if (pos1 == std::string::npos)
+  auto pos = find_crlf ();
+  if (pos == std::string::npos)
     return 0;
-  if (pos1 == 1)
+  if (pos == 1)
     {
       protocol_error ("ERR Protocol error: missing bulk length");
       return 0;
     }
 
   std::int64_t len;
-  if (!try_lexical_convert (buffer_.data () + 1, pos1 - 1, len))
+  if (!try_lexical_convert (buffer_.data () + 1, pos - 1, len))
     {
       protocol_error ("ERR Protocol error: invalid bulk length");
       return 0;
@@ -205,32 +201,32 @@ parser::parse_bulk_string (optional<data> &out)
   if (len == -1)
     {
       out = data{ bulk_string{ boost::none } };
-      return pos1 + 2;
+      return pos + 2;
     }
   if (len < 0)
     {
       protocol_error ("ERR Protocol error: invalid bulk length");
       return 0;
     }
+  if (static_cast<std::uint64_t> (len)
+      > std::numeric_limits<std::size_t>::max ())
+    {
+      protocol_error ("ERR Protocol error: bulk length exceeds limits");
+      return 0;
+    }
 
-  auto ulen = static_cast<std::uint64_t> (len);
+  auto ulen = static_cast<std::size_t> (len);
   if (config_.max_bulk_len != 0 && ulen > config_.max_bulk_len)
     {
       protocol_error (
 	  "ERR Protocol error: bulk length exceeds proto_max_bulk_len");
       return 0;
     }
-  if (ulen > std::numeric_limits<std::size_t>::max ())
-    {
-      protocol_error ("ERR Protocol error: bulk length is too large");
-      return 0;
-    }
-  auto len_sz = static_cast<std::size_t> (ulen);
 
-  auto data_start = pos1 + 2;
-  if (buffer_.size () - data_start < len_sz)
+  auto data_start = pos + 2;
+  if (buffer_.size () - data_start < ulen)
     return 0;
-  auto data_end = data_start + len_sz;
+  auto data_end = data_start + ulen;
   if (buffer_.size () - data_end < 2)
     return 0;
   if (buffer_[data_end] != '\r' || buffer_[data_end + 1] != '\n')
@@ -239,7 +235,7 @@ parser::parse_bulk_string (optional<data> &out)
       return 0;
     }
 
-  std::string str{ buffer_.data () + data_start, len_sz };
+  std::string str{ buffer_.data () + data_start, ulen };
   out = data{ bulk_string{ std::move (str) } };
   return data_end + 2;
 }
@@ -300,17 +296,18 @@ parser::parse_array (optional<data> &out)
       protocol_error ("ERR Protocol error: invalid array length");
       return 0;
     }
+  if (static_cast<std::uint64_t> (len)
+      > std::numeric_limits<std::size_t>::max ())
+    {
+      protocol_error ("ERR Protocol error: array length exceeds limits");
+      return 0;
+    }
 
-  auto ulen = static_cast<std::uint64_t> (len);
+  auto ulen = static_cast<std::size_t> (len);
   if (config_.max_array_len != 0 && ulen > config_.max_array_len)
     {
       protocol_error (
 	  "ERR Protocol error: array length exceeds proto_max_array_len");
-      return 0;
-    }
-  if (ulen > std::numeric_limits<std::size_t>::max ())
-    {
-      protocol_error ("ERR Protocol error: array length is too large");
       return 0;
     }
   if (config_.max_nesting != 0 && frames_.size () + 1 > config_.max_nesting)
@@ -320,8 +317,7 @@ parser::parse_array (optional<data> &out)
       return 0;
     }
 
-  frame frm{ static_cast<std::size_t> (ulen), {} };
-  frames_.push_back (std::move (frm));
+  frames_.push_back ({ ulen, {} });
   return pos + 2;
 }
 

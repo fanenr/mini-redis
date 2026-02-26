@@ -52,8 +52,8 @@ encode_impl (std::ostringstream &oss, const data &resp)
 	  {
 	    const auto &vec = arr.value ();
 	    oss << vec.size () << CRLF;
-	    for (const auto &v : vec)
-	      encode_impl (oss, v);
+	    for (const auto &i : vec)
+	      encode_impl (oss, i);
 	  }
 	else
 	  oss << -1 << CRLF;

@@ -24,13 +24,15 @@ public:
 
   explicit parser (config cfg);
 
-  void append_chunk (string_view chk);
+  void append (string_view chk);
   std::size_t parse ();
-  data pop ();
+
   std::size_t available_data () const;
   bool has_data () const;
-  bool has_protocol_error () const;
-  bool take_protocol_error (std::string &out);
+  data pop_data ();
+
+  bool has_error () const;
+  std::string pop_error ();
 
 private:
   bool try_parse ();
@@ -51,12 +53,10 @@ private:
   };
 
   config config_;
-  bool protocol_error_ = false;
-  std::string protocol_error_msg_;
-
   std::string buffer_;
   std::deque<data> results_;
   std::vector<frame> frames_;
+  optional<std::string> error_;
 }; // class parser
 
 } // namespace resp
